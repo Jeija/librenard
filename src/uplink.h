@@ -23,7 +23,13 @@ typedef struct _s_sfx_ul_plain {
 	bool replicas;
 } sfx_ul_plain;
 
+typedef struct _s_sfx_ul_encoded {
+	uint8_t payload[SFX_UL_MAX_FRAMELEN];
+	uint8_t len;
+} sfx_ul_encoded;
+
 // Return value: Length of sigfox frame
 uint8_t sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, uint8_t frames[3][SFX_UL_MAX_FRAMELEN]);
+uint8_t sfx_uplink_decode(sfx_ul_plain *uplink_out, sfx_commoninfo *common_out, uint8_t frame[SFX_UL_MAX_FRAMELEN]);
 
 #endif
