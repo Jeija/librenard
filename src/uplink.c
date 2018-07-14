@@ -53,16 +53,17 @@ uint16_t frametypes[3][5] = {
 	{ 0x034, 0x302, 0x5a3, 0x72c, 0x997 }  // third transmission
 };
 
-uint8_t sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, uint8_t frames[3][SFX_UL_MAX_FRAMELEN])
+// TODO: fix nomenclaature ("payload")
+void sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, sfx_ul_encoded *encoded)
 {
 	uint8_t i;
 	uint8_t replica;
 
 	// All replicas: Preamble and frame type
 	for (replica = 0; replica < 3; ++replica) {
-		// Preamble is 5 times 0b1010 = 0xa
-		for (i = 0; i < 5; ++i)
-			setnibble(frames[replica], i, 0xa);
+		// Preamble is 5 (= SFX_UL_PREAMBLELEN_NIBBLES) times 0b1010 = 0xa
+		for (i = 0; i < SFX_UL_PREAMBLELEN_NIBBLES; ++i)
+			setnibble(encoded->payload[replica], i, 0xa);
 
 		// Frame type also defines message length, three cases:
 		// * single bit
@@ -76,9 +77,9 @@ uint8_t sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, uint8_t fr
 		else
 			ftype = frametypes[replica][(uplink.msglen - 1) / 4 + 2];
 
-		setnibble(frames[replica], 5, (ftype & 0xf00) >> 8);
-		setnibble(frames[replica], 6, (ftype & 0x0f0) >> 4);
-		setnibble(frames[replica], 7, (ftype & 0x00f) >> 0);
+		setnibble(encoded->payload[replica], 5, (ftype & 0xf00) >> 8);
+		setnibble(encoded->payload[replica], 6, (ftype & 0x0f0) >> 4);
+		setnibble(encoded->payload[replica], 7, (ftype & 0x00f) >> 0);
 	}
 
 	// Construct payload: flags, sequence number, device ID, message
@@ -159,16 +160,58 @@ uint8_t sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, uint8_t fr
 
 	// Copy whole message to frame buffer including HMAC and CRC, for first transmission only
 	for (i = 0; i < payload_with_hmac_length; ++i)
-		frames[0][4 + i] = payload_with_hmac[i];
+		encoded->payload[0][4 + i] = payload_with_hmac[i];
 
-	frames[0][SFX_UL_HEADERLEN + payload_with_hmac_length + 0] = (crc16 & 0xff00) >> 8;
-	frames[0][SFX_UL_HEADERLEN + payload_with_hmac_length + 1] = crc16 & 0xff;
+	encoded->payload[0][SFX_UL_HEADERLEN + payload_with_hmac_length + 0] = (crc16 & 0xff00) >> 8;
+	encoded->payload[0][SFX_UL_HEADERLEN + payload_with_hmac_length + 1] = crc16 & 0xff;
 
-	uint8_t framelength = SFX_UL_HEADERLEN + payload_with_hmac_length + SFX_UL_CRCLEN;
+	uint8_t totallen_bytes = SFX_UL_HEADERLEN + payload_with_hmac_length + SFX_UL_CRCLEN;
+	encoded->framelen_nibbles = totallen_bytes * 2 - SFX_UL_PREAMBLELEN_NIBBLES;
 
 	// Encode replica transmissions using (7, 5) convolutional code
-	convcode(frames[0], frames[1], framelength, SFX_UL_HEADERLEN, 7);
-	convcode(frames[0], frames[2], framelength, SFX_UL_HEADERLEN, 5);
+	convcode(encoded->payload[0], encoded->payload[1], totallen_bytes, SFX_UL_HEADERLEN, 7);
+	convcode(encoded->payload[0], encoded->payload[2], totallen_bytes, SFX_UL_HEADERLEN, 5);
+}
 
-	return framelength;
+sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out, sfx_commoninfo *common_out)
+{
+	uint8_t *frame = to_decode.payload[0];
+
+	// only odd nibble numbers can naturally occur - discard all frames with even nibble numbers
+	if (to_decode.framelen_nibbles % 2 == 0)
+		return SFX_ULD_ERR_MSGLEN_EVEN;
+
+	uint16_t frametype = ((frame[0] & 0xf0) << 4) | ((frame[0] & 0x0f) << 4) | ((frame[1] & 0xf0) >> 4);
+
+	// find replica / length that matches given frame type best (lowest hamming distance)
+	uint8_t replica;
+	uint8_t msglen_type;
+
+	uint8_t best_replica = 4;
+	uint8_t best_msglen_type = 5;
+	uint8_t lowest_hammingdistance = 13;
+	for (replica = 0; replica < 3; ++replica) {
+		for (msglen_type = 0; msglen_type < 5; ++msglen_type) {
+			uint8_t hammingdistance = __builtin_popcount(frametypes[replica][msglen_type] ^ frametype);
+
+			if (hammingdistance < lowest_hammingdistance) {
+				lowest_hammingdistance = hammingdistance;
+				best_replica = replica;
+				best_msglen_type = msglen_type;
+			}
+		}
+	}
+
+	// check if msglen_type matches given frame length
+	if (best_msglen_type == 0) {
+		if (to_decode.framelen_nibbles != SFX_UL_TOTALLEN_WITHOUT_PAYLOAD)
+			return SFX_ULD_ERR_FTYPE_MISMATCH;
+	}
+	// TODO: check for other values of best_msglen_type
+
+	uplink_out->singlebit = (best_msglen_type == 0);
+
+	printf("best_replica: %d, best_msglen_type: %d\n", best_replica, best_msglen_type);
+
+	return SFX_ULD_ERR_NONE;
 }
