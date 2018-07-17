@@ -1,3 +1,4 @@
+#include <string.h>
 #include <stdio.h>
 
 #include "sigfox_hmac.h"
@@ -7,7 +8,7 @@
 
 void setnibble(uint8_t *buffer, uint8_t nibble, uint8_t value)
 {
-	value &= 0xf;
+	value &= 0x0f;
 	uint8_t byte = nibble / 2;
 	bool highnibble = (nibble % 2) == 0;
 
@@ -17,18 +18,42 @@ void setnibble(uint8_t *buffer, uint8_t nibble, uint8_t value)
 		buffer[byte] = (buffer[byte] & 0xf0) | value;
 }
 
+uint8_t getnibble(uint8_t *buffer, uint8_t nibble)
+{
+	uint8_t byte = nibble / 2;
+	bool highnibble = (nibble % 2) == 0;
+
+	return highnibble ? (buffer[byte] & 0xf0) >> 4 : buffer[byte] & 0x0f;
+}
+
+// read value from even / non-even nibble offset in buffer
+uint32_t getvalue(uint8_t *buffer, uint8_t offset_nibbles, uint8_t length_nibbles)
+{
+	uint32_t retval = 0;
+	for (uint8_t i = 0; i < length_nibbles; ++i)
+		retval |= getnibble(buffer, offset_nibbles + i) << (4 * (length_nibbles - i - 1));
+
+	return retval;
+}
+
+// read outbuffer from even / non-even nibble offset in inbuffer
+void readbuffer(uint8_t *inbuffer, uint8_t offset_nibbles, uint8_t length_nibbles, uint8_t *outbuffer) {
+	for (uint8_t i = 0; i < length_nibbles; ++i)
+		setnibble(outbuffer, i, getnibble(inbuffer, offset_nibbles + i));
+}
+
 /*
  * Convolutional code encoder
  * The encoder looks at a maximum of 8 bits at a time, so the polynomial may not be of higher order
  */
-void convcode(uint8_t *inbuffer, uint8_t *outbuffer, uint8_t length, uint8_t offset, uint8_t polynomial)
+void convcode(uint8_t *inbuffer, uint8_t *outbuffer, uint8_t length, uint16_t offset_bits, uint8_t polynomial)
 {
 	uint8_t i;
 	int8_t bit;
 	uint8_t shiftregister = 0x00;
 
-	for (i = offset; i < length; ++i) {
-		for (bit = 7; bit >= 0; --bit) {
+	for (i = offset_bits / 8; i < length; ++i) {
+		for (bit = i == offset_bits / 8 ? 7 - offset_bits % 8 : 7; bit >= 0; --bit) {
 			bool in = (0x01 & (inbuffer[i] >> bit)) != 0;
 			shiftregister = (shiftregister << 1) | (in ? 0x01 : 0x00);
 
@@ -36,6 +61,30 @@ void convcode(uint8_t *inbuffer, uint8_t *outbuffer, uint8_t length, uint8_t off
 			// __builtin_popcount returns the hamming weight of its argument
 			uint8_t convoluted = shiftregister & polynomial;
 			bool out = __builtin_popcount(convoluted) % 2 == 1;
+			outbuffer[i] = (outbuffer[i] & ~(1 << bit)) | ((out ? 1 : 0) << bit);
+		}
+	}
+}
+
+/*
+ * Convolutional code "decoder"
+ * This decoder does not take care of any error correction, it simply reverses the convolutional coding
+ * applied by 'convcode'. LSB of 'polynomial' must be set (number must therefore be odd)!
+ */
+void unconvcode(uint8_t *inbuffer, uint8_t *outbuffer, uint8_t length, uint16_t offset_bits, uint8_t polynomial) {
+	uint8_t i;
+	int8_t bit;
+	uint8_t shiftregister = 0x00;
+
+	for (i = offset_bits / 8; i < length; ++i) {
+		for (bit = i == offset_bits / 8 ? 7 - offset_bits % 8 : 7; bit >= 0; --bit) {
+			shiftregister = (shiftregister >> 1);
+			bool in = (0x01 & (inbuffer[i] >> bit)) != 0;
+			bool out = (shiftregister & 0x01) ^ in;
+
+			if (out)
+				shiftregister ^= polynomial;
+
 			outbuffer[i] = (outbuffer[i] & ~(1 << bit)) | ((out ? 1 : 0) << bit);
 		}
 	}
@@ -51,6 +100,15 @@ uint16_t frametypes[3][5] = {
 	{ 0x06b, 0x08d, 0x35f, 0x611, 0x94c }, // first transmission
 	{ 0x6e0, 0x0d2, 0x598, 0x6bf, 0x971 }, // second transmission
 	{ 0x034, 0x302, 0x5a3, 0x72c, 0x997 }  // third transmission
+};
+
+/*
+ * Translation table:
+ * column in 'frametypes' to message payload length *including*
+ * HMAC padded into payload field in bytes
+ */
+uint8_t msglen_type_to_addlen[] = {
+	0, 1, 4, 8, 12
 };
 
 // TODO: fix nomenclaature ("payload")
@@ -169,8 +227,8 @@ void sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, sfx_ul_encode
 	encoded->framelen_nibbles = totallen_bytes * 2 - SFX_UL_PREAMBLELEN_NIBBLES;
 
 	// Encode replica transmissions using (7, 5) convolutional code
-	convcode(encoded->payload[0], encoded->payload[1], totallen_bytes, SFX_UL_HEADERLEN, 7);
-	convcode(encoded->payload[0], encoded->payload[2], totallen_bytes, SFX_UL_HEADERLEN, 5);
+	convcode(encoded->payload[0], encoded->payload[1], totallen_bytes, SFX_UL_HEADERLEN * 8, 7);
+	convcode(encoded->payload[0], encoded->payload[2], totallen_bytes, SFX_UL_HEADERLEN * 8, 5);
 }
 
 sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out, sfx_commoninfo *common_out)
@@ -184,6 +242,7 @@ sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out
 	uint16_t frametype = ((frame[0] & 0xf0) << 4) | ((frame[0] & 0x0f) << 4) | ((frame[1] & 0xf0) >> 4);
 
 	// find replica / length that matches given frame type best (lowest hamming distance)
+	// this way, we can correct single-bit transmission errors of the frame type
 	uint8_t replica;
 	uint8_t msglen_type;
 
@@ -202,16 +261,34 @@ sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out
 		}
 	}
 
-	// check if msglen_type matches given frame length
-	if (best_msglen_type == 0) {
-		if (to_decode.framelen_nibbles != SFX_UL_TOTALLEN_WITHOUT_PAYLOAD)
-			return SFX_ULD_ERR_FTYPE_MISMATCH;
-	}
-	// TODO: check for other values of best_msglen_type
+	printf("best_replica: %d, best_msglen_type: %d\n", best_replica, best_msglen_type);
+
+	// Check if provided payload length matches payload length in frame type
+	if (to_decode.framelen_nibbles != SFX_UL_TOTALLEN_WITHOUT_PAYLOAD_NIBBLES + msglen_type_to_addlen[best_msglen_type] * 2)
+		return SFX_ULD_ERR_FTYPE_MISMATCH;
 
 	uplink_out->singlebit = (best_msglen_type == 0);
 
-	printf("best_replica: %d, best_msglen_type: %d\n", best_replica, best_msglen_type);
+	// just allocate the maximum possible frame length (even if it isn't necessary),
+	// so that we don't have to depend on stdlib.h for malloc
+	uint8_t frame_plain[SFX_UL_MAX_FRAMELEN - SFX_UL_PREAMBLELEN_NIBBLES / 2];
+
+	// ceiled frame length in bytes
+	uint8_t ceil_framelen_bytes = (to_decode.framelen_nibbles + 1) / 2;
+	if (best_replica == 0)
+		memcpy(frame_plain, frame, ceil_framelen_bytes);
+	else if (best_replica == 1)
+		unconvcode(frame, frame_plain, ceil_framelen_bytes, SFX_UL_FTYPELEN_NIBBLES * 4, 7);
+	else if (best_replica == 2)
+		unconvcode(frame, frame_plain, ceil_framelen_bytes, SFX_UL_FTYPELEN_NIBBLES * 4, 5);
+
+	for (uint8_t i = 0; i < ceil_framelen_bytes; ++i)
+		printf("%02x", frame_plain[i]);
+	printf("\n");
+
+	// Extract basic metadata from uplink frame
+	uplink_out->seqnum = getvalue(frame_plain, 4, 3);
+	printf("sequence number: %d\n", uplink_out->seqnum);
 
 	return SFX_ULD_ERR_NONE;
 }

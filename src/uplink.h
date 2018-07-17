@@ -7,9 +7,9 @@
 #define _UPLINK_H
 
 /*
- * SFX_UL_HEADERLEN: length of preamble, flags and sn combined;
- * everything after SFX_UL_HEADERLEN is encoded using the convolutional
- * code in the second and third transmission.
+ * SFX_UL_HEADERLEN: length of preamble (5 nibbles) and frame type (3 nibbles)
+ * combined, in bytes; everything after SFX_UL_HEADERLEN is encoded using
+ * the (7, 5) convolutional code in the second and third transmission.
  */
 #define SFX_UL_HEADERLEN 4
 #define SFX_UL_MAX_FRAMELEN 26
@@ -28,7 +28,7 @@
 #define SFX_UL_DEVIDLEN_NIBBLES 8
 #define SFX_UL_HMACRESERVERLEN_NIBBLES 4
 #define SFX_UL_CRCLEN_NIBBLES SFX_UL_CRCLEN * 2
-#define SFX_UL_TOTALLEN_WITHOUT_PAYLOAD (SFX_UL_PREAMBLELEN_NIBBLES + SFX_UL_FTYPELEN_NIBBLES + SFX_UL_FLAGLEN_NIBBLES + SFX_UL_SNLEN_NIBBLES + SFX_UL_DEVIDLEN_NIBBLES + SFX_UL_HMACRESERVERLEN_NIBBLES + SFX_UL_CRCLEN_NIBBLES)
+#define SFX_UL_TOTALLEN_WITHOUT_PAYLOAD_NIBBLES (SFX_UL_FTYPELEN_NIBBLES + SFX_UL_FLAGLEN_NIBBLES + SFX_UL_SNLEN_NIBBLES + SFX_UL_DEVIDLEN_NIBBLES + SFX_UL_HMACRESERVERLEN_NIBBLES + SFX_UL_CRCLEN_NIBBLES)
 
 typedef struct _s_sfx_ul_plain {
 	uint16_t seqnum;
