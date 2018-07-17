@@ -1,3 +1,4 @@
+#include <byteswap.h>
 #include <string.h>
 #include <stdio.h>
 
@@ -37,7 +38,7 @@ uint32_t getvalue(uint8_t *buffer, uint8_t offset_nibbles, uint8_t length_nibble
 }
 
 // read outbuffer from even / non-even nibble offset in inbuffer
-void readbuffer(uint8_t *inbuffer, uint8_t offset_nibbles, uint8_t length_nibbles, uint8_t *outbuffer) {
+void readbuffer(uint8_t *inbuffer, uint8_t *outbuffer, uint8_t offset_nibbles, uint8_t length_nibbles) {
 	for (uint8_t i = 0; i < length_nibbles; ++i)
 		setnibble(outbuffer, i, getnibble(inbuffer, offset_nibbles + i));
 }
@@ -281,14 +282,39 @@ sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out
 		unconvcode(frame, frame_plain, ceil_framelen_bytes, SFX_UL_FTYPELEN_NIBBLES * 4, 7);
 	else if (best_replica == 2)
 		unconvcode(frame, frame_plain, ceil_framelen_bytes, SFX_UL_FTYPELEN_NIBBLES * 4, 5);
+	/*
+	 * Extract basic metadata from uplink frame
+	 */
+	#define SN_OFFSET_NIBBLES SFX_UL_FTYPELEN_NIBBLES + SFX_UL_FLAGLEN_NIBBLES
+	uplink_out->seqnum = getvalue(frame_plain, SN_OFFSET_NIBBLES, SFX_UL_SNLEN_NIBBLES);
+	printf("sequence number: %d\n", uplink_out->seqnum);
 
-	for (uint8_t i = 0; i < ceil_framelen_bytes; ++i)
-		printf("%02x", frame_plain[i]);
+	// Device ID is encoded in little endian format - reverse byte order
+	#define DEVID_OFFSET_NIBBLES SN_OFFSET_NIBBLES + SFX_UL_SNLEN_NIBBLES
+	uint32_t devid_le = getvalue(frame_plain, DEVID_OFFSET_NIBBLES, SFX_UL_DEVIDLEN_NIBBLES);
+	uplink_out->devid = __bswap_32(devid_le);
+	printf("device id: %08x\n", uplink_out->devid);
+
+	// Read and interpret flags
+	uint8_t flags = getvalue(frame_plain, 3, 1);
+	uplink_out->request_downlink = flags & 0b0010 ? true : false;
+	uint8_t paddinglen = flags >> 2;
+	uplink_out->msglen = msglen_type_to_addlen[best_msglen_type] - paddinglen;
+
+	// Copy payload / message to uplink_out
+	#define PAYLOAD_OFFSET_NIBBLES DEVID_OFFSET_NIBBLES + SFX_UL_DEVIDLEN_NIBBLES
+	if (!uplink_out->singlebit)
+		readbuffer(frame_plain, uplink_out->msg, PAYLOAD_OFFSET_NIBBLES, uplink_out->msglen * 2);
+	else
+		uplink_out->msg[0] = flags & 0b0100 ? 0x01 : 0x00;
+
+	printf("msg: ");
+	for (uint8_t i = 0; i < uplink_out->msglen; ++i)
+		printf("%02x", uplink_out->msg[i]);
 	printf("\n");
 
-	// Extract basic metadata from uplink frame
-	uplink_out->seqnum = getvalue(frame_plain, 4, 3);
-	printf("sequence number: %d\n", uplink_out->seqnum);
+	// TODO: check HMAC
+	// TODO: check CRC
 
 	return SFX_ULD_ERR_NONE;
 }
