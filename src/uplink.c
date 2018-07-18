@@ -108,7 +108,7 @@ uint16_t frametypes[3][5] = {
  * column in 'frametypes' to message payload length *including*
  * HMAC padded into payload field in bytes
  */
-uint8_t msglen_type_to_addlen[] = {
+uint8_t payloadlen_type_to_addlen[] = {
 	0, 1, 4, 8, 12
 };
 
@@ -245,30 +245,33 @@ sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out
 	// find replica / length that matches given frame type best (lowest hamming distance)
 	// this way, we can correct single-bit transmission errors of the frame type
 	uint8_t replica;
-	uint8_t msglen_type;
+	uint8_t payloadlen_type;
 
 	uint8_t best_replica = 4;
-	uint8_t best_msglen_type = 5;
+	uint8_t best_payloadlen_type = 5;
 	uint8_t lowest_hammingdistance = 13;
 	for (replica = 0; replica < 3; ++replica) {
-		for (msglen_type = 0; msglen_type < 5; ++msglen_type) {
-			uint8_t hammingdistance = __builtin_popcount(frametypes[replica][msglen_type] ^ frametype);
+		for (payloadlen_type = 0; payloadlen_type < 5; ++payloadlen_type) {
+			uint8_t hammingdistance = __builtin_popcount(frametypes[replica][payloadlen_type] ^ frametype);
 
 			if (hammingdistance < lowest_hammingdistance) {
 				lowest_hammingdistance = hammingdistance;
 				best_replica = replica;
-				best_msglen_type = msglen_type;
+				best_payloadlen_type = payloadlen_type;
 			}
 		}
 	}
 
-	printf("best_replica: %d, best_msglen_type: %d\n", best_replica, best_msglen_type);
+	printf("best_replica: %d, best_payloadlen_type: %d\n", best_replica, best_payloadlen_type);
+
+	// length of payload in bytes *including* part of HMAC that is padded to end of payload
+	uint8_t payloadlen_bytes = payloadlen_type_to_addlen[best_payloadlen_type];
 
 	// Check if provided payload length matches payload length in frame type
-	if (to_decode.framelen_nibbles != SFX_UL_TOTALLEN_WITHOUT_PAYLOAD_NIBBLES + msglen_type_to_addlen[best_msglen_type] * 2)
+	if (to_decode.framelen_nibbles != SFX_UL_TOTALLEN_WITHOUT_PAYLOAD_NIBBLES + payloadlen_bytes * 2)
 		return SFX_ULD_ERR_FTYPE_MISMATCH;
 
-	uplink_out->singlebit = (best_msglen_type == 0);
+	uplink_out->singlebit = (best_payloadlen_type == 0);
 
 	// just allocate the maximum possible frame length (even if it isn't necessary),
 	// so that we don't have to depend on stdlib.h for malloc
@@ -285,12 +288,15 @@ sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out
 	/*
 	 * Extract basic metadata from uplink frame
 	 */
-	#define SN_OFFSET_NIBBLES SFX_UL_FTYPELEN_NIBBLES + SFX_UL_FLAGLEN_NIBBLES
+	#define FLAGS_OFFSET_NIBBLES SFX_UL_FTYPELEN_NIBBLES
+	#define SN_OFFSET_NIBBLES FLAGS_OFFSET_NIBBLES + SFX_UL_FLAGLEN_NIBBLES
+	#define DEVID_OFFSET_NIBBLES SN_OFFSET_NIBBLES + SFX_UL_SNLEN_NIBBLES
+	#define PAYLOAD_OFFSET_NIBBLES DEVID_OFFSET_NIBBLES + SFX_UL_DEVIDLEN_NIBBLES
+
 	uplink_out->seqnum = getvalue(frame_plain, SN_OFFSET_NIBBLES, SFX_UL_SNLEN_NIBBLES);
 	printf("sequence number: %d\n", uplink_out->seqnum);
 
 	// Device ID is encoded in little endian format - reverse byte order
-	#define DEVID_OFFSET_NIBBLES SN_OFFSET_NIBBLES + SFX_UL_SNLEN_NIBBLES
 	uint32_t devid_le = getvalue(frame_plain, DEVID_OFFSET_NIBBLES, SFX_UL_DEVIDLEN_NIBBLES);
 	uplink_out->devid = __bswap_32(devid_le);
 	printf("device id: %08x\n", uplink_out->devid);
@@ -299,22 +305,44 @@ sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out
 	uint8_t flags = getvalue(frame_plain, 3, 1);
 	uplink_out->request_downlink = flags & 0b0010 ? true : false;
 	uint8_t paddinglen = flags >> 2;
-	uplink_out->msglen = msglen_type_to_addlen[best_msglen_type] - paddinglen;
+	uplink_out->msglen = payloadlen_bytes - paddinglen;
 
 	// Copy payload / message to uplink_out
-	#define PAYLOAD_OFFSET_NIBBLES DEVID_OFFSET_NIBBLES + SFX_UL_DEVIDLEN_NIBBLES
 	if (!uplink_out->singlebit)
 		readbuffer(frame_plain, uplink_out->msg, PAYLOAD_OFFSET_NIBBLES, uplink_out->msglen * 2);
 	else
 		uplink_out->msg[0] = flags & 0b0100 ? 0x01 : 0x00;
 
-	printf("msg: ");
-	for (uint8_t i = 0; i < uplink_out->msglen; ++i)
-		printf("%02x", uplink_out->msg[i]);
+	printf("frame_plain: ");
+	for (uint8_t i = 0; i < (to_decode.framelen_nibbles + 1) / 2; ++i)
+		printf("%02x", frame_plain[i]);
+	printf("\n");
+
+	/*
+	 * Check CRC
+	 * CRC is calculated from the frame contents starting at the flags
+	 * 'framecontent' is the section of the frame from flags to HMAC
+	 */
+	#define FRAMECONTENT_NIBBLES_WITHOUT_PAYLOAD SFX_UL_FLAGLEN_NIBBLES + SFX_UL_SNLEN_NIBBLES + SFX_UL_DEVIDLEN_NIBBLES + SFX_UL_HMACRESERVERLEN_NIBBLES
+	uint8_t framecontent[SFX_UL_MAX_PAYLOADLEN];
+	uint8_t framecontent_len_nibbles = FRAMECONTENT_NIBBLES_WITHOUT_PAYLOAD + 2 * payloadlen_bytes;
+	readbuffer(frame_plain, framecontent, FLAGS_OFFSET_NIBBLES, framecontent_len_nibbles);
+
+	uint8_t crc16_offset_nibbles = SFX_UL_FTYPELEN_NIBBLES + framecontent_len_nibbles;
+	uint8_t hmac_offset_nibbles = crc16_offset_nibbles - SFX_UL_HMACRESERVERLEN_NIBBLES;
+
+	uint16_t crc16 = ~SIGFOX_CRC_crc16(framecontent, framecontent_len_nibbles / 2);
+	uint16_t crc16_frame = getvalue(frame_plain, crc16_offset_nibbles, SFX_UL_CRCLEN_NIBBLES);
+
+	if (crc16 != crc16_frame)
+		return SFX_ULD_ERR_CRC_INVALID;
+
+	printf("framecontent: ");
+	for (uint8_t i = 0; i < (framecontent_len_nibbles + 1) / 2; ++i)
+		printf("%02x", framecontent[i]);
 	printf("\n");
 
 	// TODO: check HMAC
-	// TODO: check CRC
 
 	return SFX_ULD_ERR_NONE;
 }

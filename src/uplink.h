@@ -56,6 +56,9 @@ typedef enum _s_sfx_uld_err {
 	// frame type doesn't match given messsage length
 	SFX_ULD_ERR_FTYPE_MISMATCH,
 
+	// frame's CRC16 doesn't match CRC16 computed from frame contents
+	SFX_ULD_ERR_CRC_INVALID,
+
 	SFX_ULD_ERR_NONE
 } sfx_uld_err;
 
