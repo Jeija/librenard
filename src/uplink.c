@@ -112,7 +112,49 @@ uint8_t payloadlen_type_to_addlen[] = {
 	0, 1, 4, 8, 12
 };
 
+/*
+ * Calculate HMAC for given frame and given private key
+ * msglen: Length of payload inside frame (excluding padding with HMAC) in bytes
+ * Number between 0 and 12, 0 is for single-bit messages
+ *
+ * return value: length of HMAC in bytes
+ */
+uint8_t sfx_uplink_get_hmac(uint8_t *framecontent, uint8_t msglen, uint8_t *key, uint8_t *hmac) {
+	// Fill two 128bit-AES blocks with data to encrypt, even if maybe just one of them is used
+	// authentic_data_length: not only the payload, but also flags, SN and device id are begin protected
+	// (authenticity checked) by HMAC, therefore the length of data to be encrypted is greater than just
+	// the message payload
+	#define ADDITIONAL_LENGTH_BYTES ((SFX_UL_FLAGLEN_NIBBLES + SFX_UL_SNLEN_NIBBLES + SFX_UL_DEVIDLEN_NIBBLES) / 2)
+	uint8_t authentic_data_length = ADDITIONAL_LENGTH_BYTES + msglen;
+	uint8_t data_to_encrypt[32];
+	uint8_t j = 0;
+	for (uint8_t i = 0; i < 32; ++i) {
+		data_to_encrypt[i] = framecontent[j];
+		j = (j + 1) % authentic_data_length;
+	}
+
+	// If authenticity-checked data is longer than one AES block (128 bits = 16 bytes),
+	// use two blocks
+	uint8_t blocknum = (authentic_data_length > 16 ? 2 : 1);
+
+	// Encrypt authenticity-checked data with 'private' AES key,
+	// beginning of encrypted_data is hmac
+	uint8_t encrypted_data[32];
+	aes_128_cbc_encrypt(encrypted_data, data_to_encrypt, blocknum * 16, key);
+
+	// The length of the HMAC included in the frame depends on the length of the 
+	// message. It is at least 2 bytes, but if the message has to be padded, the
+	// first bytes of the HMAC are used as padding.
+	// Special case: Single-byte messages have a special frame type, don't have
+	// to be padded.
+	uint8_t hmaclen = SFX_UL_HMACRESERVELEN + (msglen == 1 ? 0 : ((12 - msglen) % 4));
+	memcpy(hmac, &encrypted_data[(blocknum - 1) * 16], hmaclen);
+
+	return hmaclen;
+}
+
 // TODO: fix nomenclaature ("payload")
+// TODO: #define offsets with constants in header
 void sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, sfx_ul_encoded *encoded)
 {
 	uint8_t i;
@@ -185,33 +227,20 @@ void sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, sfx_ul_encode
 	// Generate HMAC for payload (actually using a CBC-MAC algorithm)
 	// Input for CBC-MAC algorithm is a repetition of the payload over the whole length of
 	// all input blocks. If payload is longer than 16 byte, it two blocks are used; otherwise one.
-	uint8_t payloadlen = 6 + (uplink.singlebit ? 0 : uplink.msglen);
-
-	// Fill two 128bit-AES blocks with data to encrypt, even if maybe just one of them is used
-	uint8_t data_to_encrypt[32];
-	uint8_t j = 0;
-
-	for (i = 0; i < 32; ++i) {
-		data_to_encrypt[i] = payload[j];
-		j = (j + 1) % payloadlen;
-	}
-
-	uint8_t blocknum = (payloadlen > 16 ? 2 : 1);
-
-	uint8_t encrypted_data[32];
-	aes_128_cbc_encrypt(encrypted_data, data_to_encrypt, blocknum * 16, common.key);
+	uint8_t hmac[SFX_UL_MAX_HMACLEN];
+	uint8_t hmaclen = sfx_uplink_get_hmac(payload, uplink.msglen, common.key, hmac);
 
 	// The length of the HMAC included in the frame depends on the length of the 
 	// message. It is at least 2 bytes, but if the message has to be padded, the
 	// first bytes of the HMAC are used as padding.
-	uint8_t hmaclen = 2 + paddinglen;
+	uint8_t payloadlen = 6 + (uplink.singlebit ? 0 : uplink.msglen);
 	uint8_t payload_with_hmac[SFX_UL_MAX_PAYLOADLEN_WITH_HMAC];
 
 	for (i = 0; i < payloadlen; ++i)
 		payload_with_hmac[i] = payload[i];
 
 	for (i = 0; i < hmaclen; ++i)
-		payload_with_hmac[payloadlen + i] = encrypted_data[(blocknum - 1) * 16 + i];
+		payload_with_hmac[payloadlen + i] = hmac[i];
 
 	// Add CRC to message (CRC is inverted)
 	uint8_t payload_with_hmac_length = payloadlen + hmaclen;
@@ -232,7 +261,7 @@ void sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, sfx_ul_encode
 	convcode(encoded->payload[0], encoded->payload[2], totallen_bytes, SFX_UL_HEADERLEN * 8, 5);
 }
 
-sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out, sfx_commoninfo *common_out)
+sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out, sfx_commoninfo *common, bool check_hmac)
 {
 	uint8_t *frame = to_decode.payload[0];
 
@@ -261,8 +290,6 @@ sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out
 			}
 		}
 	}
-
-	printf("best_replica: %d, best_payloadlen_type: %d\n", best_replica, best_payloadlen_type);
 
 	// length of payload in bytes *including* part of HMAC that is padded to end of payload
 	uint8_t payloadlen_bytes = payloadlen_type_to_addlen[best_payloadlen_type];
@@ -293,13 +320,10 @@ sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out
 	#define DEVID_OFFSET_NIBBLES SN_OFFSET_NIBBLES + SFX_UL_SNLEN_NIBBLES
 	#define PAYLOAD_OFFSET_NIBBLES DEVID_OFFSET_NIBBLES + SFX_UL_DEVIDLEN_NIBBLES
 
-	uplink_out->seqnum = getvalue(frame_plain, SN_OFFSET_NIBBLES, SFX_UL_SNLEN_NIBBLES);
-	printf("sequence number: %d\n", uplink_out->seqnum);
-
 	// Device ID is encoded in little endian format - reverse byte order
 	uint32_t devid_le = getvalue(frame_plain, DEVID_OFFSET_NIBBLES, SFX_UL_DEVIDLEN_NIBBLES);
-	uplink_out->devid = __bswap_32(devid_le);
-	printf("device id: %08x\n", uplink_out->devid);
+	common->devid = __bswap_32(devid_le);
+	common->seqnum = getvalue(frame_plain, SN_OFFSET_NIBBLES, SFX_UL_SNLEN_NIBBLES);
 
 	// Read and interpret flags
 	uint8_t flags = getvalue(frame_plain, 3, 1);
@@ -313,36 +337,39 @@ sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out
 	else
 		uplink_out->msg[0] = flags & 0b0100 ? 0x01 : 0x00;
 
-	printf("frame_plain: ");
-	for (uint8_t i = 0; i < (to_decode.framelen_nibbles + 1) / 2; ++i)
-		printf("%02x", frame_plain[i]);
-	printf("\n");
-
 	/*
 	 * Check CRC
 	 * CRC is calculated from the frame contents starting at the flags
 	 * 'framecontent' is the section of the frame from flags to HMAC
+	 * 'framecontent_len_nibbles' is even (no half-bytes)
 	 */
 	#define FRAMECONTENT_NIBBLES_WITHOUT_PAYLOAD SFX_UL_FLAGLEN_NIBBLES + SFX_UL_SNLEN_NIBBLES + SFX_UL_DEVIDLEN_NIBBLES + SFX_UL_HMACRESERVERLEN_NIBBLES
 	uint8_t framecontent[SFX_UL_MAX_PAYLOADLEN];
 	uint8_t framecontent_len_nibbles = FRAMECONTENT_NIBBLES_WITHOUT_PAYLOAD + 2 * payloadlen_bytes;
+	uint8_t framecontent_len = framecontent_len_nibbles / 2;
+
 	readbuffer(frame_plain, framecontent, FLAGS_OFFSET_NIBBLES, framecontent_len_nibbles);
 
 	uint8_t crc16_offset_nibbles = SFX_UL_FTYPELEN_NIBBLES + framecontent_len_nibbles;
 	uint8_t hmac_offset_nibbles = crc16_offset_nibbles - SFX_UL_HMACRESERVERLEN_NIBBLES;
 
-	uint16_t crc16 = ~SIGFOX_CRC_crc16(framecontent, framecontent_len_nibbles / 2);
+	uint16_t crc16 = ~SIGFOX_CRC_crc16(framecontent, framecontent_len);
 	uint16_t crc16_frame = getvalue(frame_plain, crc16_offset_nibbles, SFX_UL_CRCLEN_NIBBLES);
 
 	if (crc16 != crc16_frame)
 		return SFX_ULD_ERR_CRC_INVALID;
 
-	printf("framecontent: ");
-	for (uint8_t i = 0; i < (framecontent_len_nibbles + 1) / 2; ++i)
-		printf("%02x", framecontent[i]);
-	printf("\n");
+	/*
+	 * Check HMAC (optional)
+	 */
+	if (check_hmac) {
+		uint8_t hmac[SFX_UL_MAX_HMACLEN];
+		uint8_t hmaclen = sfx_uplink_get_hmac(framecontent, uplink_out->msglen, common->key, hmac);
 
-	// TODO: check HMAC
+		for (uint8_t i = 0; i < hmaclen; ++i)
+			if (framecontent[framecontent_len - hmaclen + i] != hmac[i])
+				return SFX_ULD_ERR_HMAC_INVALID;
+	}
 
 	return SFX_ULD_ERR_NONE;
 }
