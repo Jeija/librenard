@@ -71,6 +71,7 @@ void convcode(uint8_t *inbuffer, uint8_t *outbuffer, uint8_t length, uint16_t of
  * Convolutional code "decoder"
  * This decoder does not take care of any error correction, it simply reverses the convolutional coding
  * applied by 'convcode'. LSB of 'polynomial' must be set (number must therefore be odd)!
+ * This is basically polynomial division under GF(2) arithmetic.
  */
 void unconvcode(uint8_t *inbuffer, uint8_t *outbuffer, uint8_t length, uint16_t offset_bits, uint8_t polynomial) {
 	uint8_t i;
@@ -226,7 +227,7 @@ void sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, sfx_ul_encode
 
 	// Generate HMAC for payload (actually using a CBC-MAC algorithm)
 	// Input for CBC-MAC algorithm is a repetition of the payload over the whole length of
-	// all input blocks. If payload is longer than 16 byte, it two blocks are used; otherwise one.
+	// all input blocks. If payload is longer than 16 byte, if two blocks are used; otherwise one.
 	uint8_t hmac[SFX_UL_MAX_HMACLEN];
 	uint8_t hmaclen = sfx_uplink_get_hmac(payload, uplink.msglen, common.key, hmac);
 
