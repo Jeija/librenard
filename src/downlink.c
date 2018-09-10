@@ -16,7 +16,10 @@ uint8_t SFX_DL_PREAMBLE[] = {
  * Scrambling using 9-bit Linear-feedback shift register
  * 
  * https://en.wikipedia.org/wiki/Linear-feedback_shift_register
- * Polynomial: x^9 + x^4 + 1
+ * Polynomial: x^9 + x^5 + 1
+ * In special mode called
+ * "IBM whitening" as described in https://www.semtech.com/uploads/documents/AN1200.18_STD.pdf =
+ * "PN9 whitening" as described in http://www.ti.com/lit/an/swra322/swra322.pdf
  */
 void LFSR(uint16_t *state)
 {
