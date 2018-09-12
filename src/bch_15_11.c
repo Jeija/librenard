@@ -60,8 +60,9 @@ uint8_t bch_15_11_get_syndrome(uint16_t codeword) {
 }
 
 // Returns "closest" (by hamming distance) valid codeword
-uint16_t bch_15_11_correct(uint16_t codeword) {
+uint16_t bch_15_11_correct(uint16_t codeword, bool *changed) {
 	uint8_t syndrome = bch_15_11_get_syndrome(codeword);
+	*changed = syndrome != 0 ? true : false;
 	return codeword ^ bch_15_11_syndrometable[syndrome];
 }
 

@@ -25,6 +25,7 @@ typedef struct _s_sfx_dl_plain {
 	uint8_t msg[SFX_DL_MSGLEN];
 	bool crc_ok;
 	bool hmac_ok;
+	bool fec_corrected;
 } sfx_dl_plain;
 
 void sfx_downlink_decode(sfx_dl_encoded encoded, sfx_commoninfo common, sfx_dl_plain *decoded);

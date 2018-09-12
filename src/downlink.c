@@ -17,14 +17,11 @@ uint8_t SFX_DL_PREAMBLE[] = {
  * 
  * https://en.wikipedia.org/wiki/Linear-feedback_shift_register
  * Polynomial: x^9 + x^5 + 1
- * In special mode called
- * "IBM whitening" as described in https://www.semtech.com/uploads/documents/AN1200.18_STD.pdf =
- * "PN9 whitening" as described in http://www.ti.com/lit/an/swra322/swra322.pdf
  */
 void LFSR(uint16_t *state)
 {
 	for (uint8_t i = 0; i < 8; ++i) {
-		bool tapA = (*state & (1 << 5)) ? true : false; // tap for x^4
+		bool tapA = (*state & (1 << 5)) ? true : false; // tap for x^5
 		bool tapB = (*state & (1 << 0)) ? true : false; // tap for x^9
 
 		*state = (tapA ^ tapB ? 0x100 : 0) | (*state >> 1);
@@ -36,12 +33,12 @@ uint32_t extractLowerBits(uint32_t value, uint8_t bitcount)
 	return ((1 << bitcount) - 1) & value;
 }
 
-void sfx_downlink_payload_scramble(uint8_t *payloadbuf, sfx_commoninfo common) {
+void sfx_downlink_payload_scramble(uint8_t *payloadbuf, sfx_commoninfo common)
+{
 	/*
 	 * Initialize LFSR with seed value derived from device ID and uplink SN (for descrambling)
 	 */
-	uint32_t devid_seed = common.devid & 0xff00ffff;
-	uint16_t state = (common.seqnum * devid_seed) & 0x1ff;
+	uint16_t state = (common.seqnum * common.devid) & 0x1ff;
 
 	if (state == 0)
 		state = 0x1ff;
@@ -106,7 +103,9 @@ void sfx_downlink_decode(sfx_dl_encoded encoded, sfx_commoninfo common, sfx_dl_p
 	 * the code word (some sort of interleaving). The code is systematic in the way that bytes
 	 * 0-3 contain just redundancy information and bytes 4-14 contain the actual message (and thus
 	 * bits 0-3 are for reduandancy while bits 4-14 contain data).
+	 * `fec_corrected` stores wheter there were any bit errors that were corrected by the BCH ECC. 
 	 */
+	decoded->fec_corrected = false;
 	for (uint8_t bitoffset = 0; bitoffset < 8; ++bitoffset) {
 		uint16_t code = 0x0000;
 
@@ -114,7 +113,10 @@ void sfx_downlink_decode(sfx_dl_encoded encoded, sfx_commoninfo common, sfx_dl_p
 		for (uint8_t byte = 0; byte < 15; ++byte)
 			code |= ((payload[byte] & (1 << (7 - bitoffset))) ? 1 : 0) << (14 - byte);
 
-		code = bch_15_11_correct(code);
+		bool changed = false;
+		code = bch_15_11_correct(code, &changed);
+		if (changed)
+			decoded->fec_corrected = true;
 
 		// "interleave": write back bits to payload bytes
 		for (uint8_t byte = 0; byte < 15; ++byte) {
