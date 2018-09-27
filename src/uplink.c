@@ -352,7 +352,6 @@ sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out
 	readbuffer(frame_plain, framecontent, FLAGS_OFFSET_NIBBLES, framecontent_len_nibbles);
 
 	uint8_t crc16_offset_nibbles = SFX_UL_FTYPELEN_NIBBLES + framecontent_len_nibbles;
-	uint8_t hmac_offset_nibbles = crc16_offset_nibbles - SFX_UL_HMACRESERVERLEN_NIBBLES;
 
 	uint16_t crc16 = ~SIGFOX_CRC_crc16(framecontent, framecontent_len);
 	uint16_t crc16_frame = getvalue(frame_plain, crc16_offset_nibbles, SFX_UL_CRCLEN_NIBBLES);
