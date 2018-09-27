@@ -68,8 +68,8 @@ void sfx_downlink_payload_scramble(uint8_t *payloadbuf, sfx_commoninfo common)
  * AES function input consists of device id, plain message and uplink sequence number
  */
 uint16_t sfx_downlink_get_hmac(uint8_t *message, sfx_commoninfo common) {
-	uint8_t encrypted_data[32];
-	uint8_t data_to_encrypt[32];
+	uint8_t encrypted_data[16];
+	uint8_t data_to_encrypt[16];
 	data_to_encrypt[0] = (common.devid & 0x000000ff) >> 0;
 	data_to_encrypt[1] = (common.devid & 0x0000ff00) >> 8;
 	data_to_encrypt[2] = (common.devid & 0x00ff0000) >> 16;
