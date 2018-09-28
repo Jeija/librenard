@@ -329,7 +329,7 @@ sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out
 	// Read and interpret flags
 	uint8_t flags = getvalue(frame_plain, 3, 1);
 	uplink_out->request_downlink = flags & 0b0010 ? true : false;
-	uint8_t paddinglen = flags >> 2;
+	uint8_t paddinglen = uplink_out->singlebit ? 0 : flags >> 2;
 	uplink_out->msglen = payloadlen_bytes - paddinglen;
 
 	// Copy payload / message to uplink_out
