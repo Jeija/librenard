@@ -53,6 +53,10 @@ typedef struct _s_sfx_ul_encoded {
 	uint8_t framelen_nibbles;
 } sfx_ul_encoded;
 
+/**
+ * @typedef sfx_uld_err
+ * @brief Set of errors that can occur during frame decoding, returned by ::sfx_uplink_decode.
+ */
 typedef enum _s_sfx_uld_err {
 	// number of nibbles in message frame is even; only odd lengths can naturally occur
 	SFX_ULD_ERR_MSGLEN_EVEN,
@@ -70,9 +74,6 @@ typedef enum _s_sfx_uld_err {
 	SFX_ULD_ERR_NONE
 } sfx_uld_err;
 
-/*
- * TODO: document
- */
 void sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, sfx_ul_encoded *encoded);
 
 /*
@@ -82,6 +83,6 @@ void sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, sfx_ul_encode
  * 'common' parameter is both used as input (common.key, optional if check_hmac is set)
  * and as output (common.devid, common.seqnum)
  */
-sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out, sfx_commoninfo *common, bool check_hmac);
+sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out, sfx_commoninfo *common, bool check_mac);
 
 #endif

@@ -6,3 +6,12 @@ src/*
 !src/*.c
 !src/*.h
 !Makefile
+!doc
+doc/*
+!doc/Doxyfile
+!doc/conf.py
+!doc/*.rst
+!doc/Makefile
+!doc/_static
+doc/_static/*
+!doc/_static/*.svg

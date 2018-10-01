@@ -20,6 +20,7 @@ A command line interface to ``librenard`` is provided by |renard|_.
 
         uplink
         downlink
+        everything
 
 Indices and tables
 ==================

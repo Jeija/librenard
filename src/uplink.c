@@ -156,6 +156,12 @@ uint8_t sfx_uplink_get_hmac(uint8_t *framecontent, uint8_t msglen, uint8_t *key,
 
 // TODO: fix nomenclaature ("payload")
 // TODO: #define offsets with constants in header
+/**
+ * @brief: Generate raw Sigfox uplink frame for the given frame contents
+ * @param uplink: The content of the payload to encode
+ * @param common: General information about the Sigfox object and its state
+ * @param encoded: Output, raw encoded Sigfox uplink frame(s), including preamble
+ */
 void sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, sfx_ul_encoded *encoded)
 {
 	uint8_t i;
@@ -262,7 +268,15 @@ void sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, sfx_ul_encode
 	convcode(encoded->payload[0], encoded->payload[2], totallen_bytes, SFX_UL_HEADERLEN * 8, 5);
 }
 
-sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out, sfx_commoninfo *common, bool check_hmac)
+/**
+ * @brief: Retrieve contents of Sigfox uplink from given raw frame
+ * @param to_decode: The raw contents of the Sigfox frame to decode, without preamble (any replica)
+ * @param uplink_out: Output, decoded plain contents of uplink frame
+ * @param common: General information about the Sigfox object and its state. NAK is optional and only required, if MAC tag checking is enabled.
+ * @param check_mac: If true, check MAC tag of uplink frame. In this case, a valid NAK has to be provided.
+ * @return ::SFX_ULD_ERR_NONE if decoding was successful, otherwise some error defined in ::sfx_uld_err
+ */
+sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out, sfx_commoninfo *common, bool check_mac)
 {
 	uint8_t *frame = to_decode.payload[0];
 
@@ -362,7 +376,7 @@ sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out
 	/*
 	 * Check HMAC (optional)
 	 */
-	if (check_hmac) {
+	if (check_mac) {
 		uint8_t hmac[SFX_UL_MAX_HMACLEN];
 		uint8_t hmaclen = sfx_uplink_get_hmac(framecontent, uplink_out->msglen, common->key, hmac);
 
