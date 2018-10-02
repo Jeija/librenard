@@ -6,6 +6,12 @@
 #include "uplink.h"
 #include "common.h"
 
+/**
+ * @brief Set nibble (4 bits) in buffer to value
+ * @param buffer Buffer to modify
+ * @param nibble Index of nibble in buffer, 0-255
+ * @param value Value to set the nibble to, only the 4 lower bits are used
+ */
 void setnibble(uint8_t *buffer, uint8_t nibble, uint8_t value)
 {
 	value &= 0x0f;
@@ -18,6 +24,12 @@ void setnibble(uint8_t *buffer, uint8_t nibble, uint8_t value)
 		buffer[byte] = (buffer[byte] & 0xf0) | value;
 }
 
+/**
+ * @brief Get nibble (4 bits) from buffer
+ * @param buffer Buffer to read from
+ * @param nibble Index of nibble in buffer, 0-255
+ * @return Value of nibble, only the 4 lower bits are used
+ */
 uint8_t getnibble(uint8_t *buffer, uint8_t nibble)
 {
 	uint8_t byte = nibble / 2;
@@ -26,7 +38,13 @@ uint8_t getnibble(uint8_t *buffer, uint8_t nibble)
 	return highnibble ? (buffer[byte] & 0xf0) >> 4 : buffer[byte] & 0x0f;
 }
 
-// read value from even / non-even nibble offset in buffer
+/**
+ * @brief Read unsigned integer value from arbitrary nibble offset in buffer
+ * @param buffer Buffer to read from
+ * @offset_nibbles Offset at which the first (highest) nibble of the integer value is located
+ * @length_nibbles Length of unsigned integer value, in nibbles (up to 8)
+ * @return 32-bit unsigned integer value that was read
+ */
 uint32_t getvalue(uint8_t *buffer, uint8_t offset_nibbles, uint8_t length_nibbles)
 {
 	uint32_t retval = 0;
@@ -36,15 +54,25 @@ uint32_t getvalue(uint8_t *buffer, uint8_t offset_nibbles, uint8_t length_nibble
 	return retval;
 }
 
-// read outbuffer from even / non-even nibble offset in inbuffer
-void readbuffer(uint8_t *inbuffer, uint8_t *outbuffer, uint8_t offset_nibbles, uint8_t length_nibbles) {
+/**
+ * @brief Copy data from input buffer to output buffer at arbitrary nibble offsets
+ * @param outbuffer Output buffer
+ * @param inbuffer Input buffer
+ * @param offset_nibbles Offset at which to start copying, in nibbles
+ * @param length_nibbles Length of data to copy, in nibbles
+ */
+void memcpy_nibbles(uint8_t *outbuffer, uint8_t *inbuffer, uint8_t offset_nibbles, uint8_t length_nibbles) {
 	for (uint8_t i = 0; i < length_nibbles; ++i)
 		setnibble(outbuffer, i, getnibble(inbuffer, offset_nibbles + i));
 }
 
-/*
- * Convolutional code encoder
- * The encoder looks at a maximum of 8 bits at a time, so the polynomial may not be of higher order
+/**
+ * @brief Convolutional coder, multiplies input binary string U(X) with generator polynomial G(X) to produce output: V(X) = U(X) * G(X) under GF(2)-arithmetic
+ * @param inbuffer Input binary string, interpreted as polynomial U(X)
+ * @param outbuffer Output binary string, V(X)
+ * @param length Length of inbuffer in bytes
+ * @param offset_bits Number of bits to skip in input, this many bits will just be ignored and not encoded
+ * @param polynomial Generator polynomial G(X) with maximum order 7
  */
 void convcode(uint8_t *inbuffer, uint8_t *outbuffer, uint8_t length, uint16_t offset_bits, uint8_t polynomial)
 {
@@ -66,11 +94,13 @@ void convcode(uint8_t *inbuffer, uint8_t *outbuffer, uint8_t length, uint16_t of
 	}
 }
 
-/*
- * Convolutional code "decoder"
- * This decoder does not take care of any error correction, it simply reverses the convolutional coding
- * applied by 'convcode'. LSB of 'polynomial' must be set (number must therefore be odd)!
- * This is basically polynomial division under GF(2) arithmetic.
+/**
+ * @brief Convolutional "decoder", does not take care of error correction, but simply reverses the convolutional coding applied by ::convcode. Realizes the polynomial division U(X) = V(X) / G(X) under GF(2)-arithmetic
+ * @param inbuffer Input binary string, interpreted as polynomial V(X)
+ * @param outbuffer Output binary string, U(X)
+ * @param length Length of inbuffer in bytes
+ * @param offset_bits Number of bits to skip in input, this many bits will just be ignored and not decoded
+ * @param polynomial Generator polynomial G(X) with maximum order 7. Only polynomials with the LSB set (corresponds to "1") are supported.
  */
 void unconvcode(uint8_t *inbuffer, uint8_t *outbuffer, uint8_t length, uint16_t offset_bits, uint8_t polynomial) {
 	uint8_t i;
@@ -352,7 +382,7 @@ sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out
 
 	// Copy payload / message to uplink_out
 	if (!uplink_out->singlebit)
-		readbuffer(frame_plain, uplink_out->msg, PAYLOAD_OFFSET_NIBBLES, uplink_out->msglen * 2);
+		memcpy_nibbles(uplink_out->msg, frame_plain, PAYLOAD_OFFSET_NIBBLES, uplink_out->msglen * 2);
 	else
 		uplink_out->msg[0] = flags & 0b0100 ? 0x01 : 0x00;
 
@@ -367,7 +397,7 @@ sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out
 	uint8_t framecontent_len_nibbles = FRAMECONTENT_NIBBLES_WITHOUT_PAYLOAD + 2 * payloadlen_bytes;
 	uint8_t framecontent_len = framecontent_len_nibbles / 2;
 
-	readbuffer(frame_plain, framecontent, FLAGS_OFFSET_NIBBLES, framecontent_len_nibbles);
+	memcpy_nibbles(framecontent, frame_plain, FLAGS_OFFSET_NIBBLES, framecontent_len_nibbles);
 
 	uint8_t crc16_offset_nibbles = SFX_UL_FTYPELEN_NIBBLES + framecontent_len_nibbles;
 
