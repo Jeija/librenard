@@ -202,12 +202,12 @@ void sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, sfx_ul_encode
 	for (replica = 0; replica < 3; ++replica) {
 		// Preamble is 5 (= SFX_UL_PREAMBLELEN_NIBBLES) times 0b1010 = 0xa
 		for (i = 0; i < SFX_UL_PREAMBLELEN_NIBBLES; ++i)
-			setnibble(encoded->payload[replica], i, 0xa);
+			setnibble(encoded->frame[replica], i, 0xa);
 
 		// Frame type also defines message length, three cases:
-		// * single bit
-		// * 1 byte
-		// * 4 / 8 / 12 bytes
+		// * single bit (class A)
+		// * 1 byte (class B)
+		// * 4 / 8 / 12 bytes (class C/D/E)
 		uint16_t ftype;
 		if (uplink.singlebit)
 			ftype = frametypes[replica][0];
@@ -216,9 +216,9 @@ void sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, sfx_ul_encode
 		else
 			ftype = frametypes[replica][(uplink.msglen - 1) / 4 + 2];
 
-		setnibble(encoded->payload[replica], 5, (ftype & 0xf00) >> 8);
-		setnibble(encoded->payload[replica], 6, (ftype & 0x0f0) >> 4);
-		setnibble(encoded->payload[replica], 7, (ftype & 0x00f) >> 0);
+		setnibble(encoded->frame[replica], 5, (ftype & 0xf00) >> 8);
+		setnibble(encoded->frame[replica], 6, (ftype & 0x0f0) >> 4);
+		setnibble(encoded->frame[replica], 7, (ftype & 0x00f) >> 0);
 	}
 
 	// Construct payload: flags, sequence number, device ID, message
@@ -286,17 +286,17 @@ void sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, sfx_ul_encode
 
 	// Copy whole message to frame buffer including HMAC and CRC, for first transmission only
 	for (i = 0; i < payload_with_hmac_length; ++i)
-		encoded->payload[0][4 + i] = payload_with_hmac[i];
+		encoded->frame[0][4 + i] = payload_with_hmac[i];
 
-	encoded->payload[0][SFX_UL_HEADERLEN + payload_with_hmac_length + 0] = (crc16 & 0xff00) >> 8;
-	encoded->payload[0][SFX_UL_HEADERLEN + payload_with_hmac_length + 1] = crc16 & 0xff;
+	encoded->frame[0][SFX_UL_HEADERLEN + payload_with_hmac_length + 0] = (crc16 & 0xff00) >> 8;
+	encoded->frame[0][SFX_UL_HEADERLEN + payload_with_hmac_length + 1] = crc16 & 0xff;
 
 	uint8_t totallen_bytes = SFX_UL_HEADERLEN + payload_with_hmac_length + SFX_UL_CRCLEN;
 	encoded->framelen_nibbles = totallen_bytes * 2 - SFX_UL_PREAMBLELEN_NIBBLES;
 
 	// Encode replica transmissions using (7, 5) convolutional code
-	convcode(encoded->payload[0], encoded->payload[1], totallen_bytes, SFX_UL_HEADERLEN * 8, 7);
-	convcode(encoded->payload[0], encoded->payload[2], totallen_bytes, SFX_UL_HEADERLEN * 8, 5);
+	convcode(encoded->frame[0], encoded->frame[1], totallen_bytes, SFX_UL_HEADERLEN * 8, 7);
+	convcode(encoded->frame[0], encoded->frame[2], totallen_bytes, SFX_UL_HEADERLEN * 8, 5);
 }
 
 /**
@@ -309,7 +309,7 @@ void sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, sfx_ul_encode
  */
 sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out, sfx_commoninfo *common, bool check_mac)
 {
-	uint8_t *frame = to_decode.payload[0];
+	uint8_t *frame = to_decode.frame[0];
 
 	// only odd nibble numbers can naturally occur - discard all frames with even nibble numbers
 	if (to_decode.framelen_nibbles % 2 == 0)

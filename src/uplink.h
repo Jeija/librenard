@@ -49,7 +49,7 @@ typedef struct _s_sfx_ul_plain {
  * in nibbles
  */
 typedef struct _s_sfx_ul_encoded {
-	uint8_t payload[3][SFX_UL_MAX_FRAMELEN];
+	uint8_t frame[3][SFX_UL_MAX_FRAMELEN];
 	uint8_t framelen_nibbles;
 } sfx_ul_encoded;
 
