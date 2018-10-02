@@ -6,6 +6,8 @@
 #ifndef _UPLINK_H
 #define _UPLINK_H
 
+extern uint8_t SFX_UL_PREAMBLE[];
+
 /*
  * SFX_UL_HEADERLEN: length of preamble (5 nibbles) and frame type (3 nibbles)
  * combined, in bytes; everything after SFX_UL_HEADERLEN is encoded using
@@ -17,9 +19,8 @@
 #define SFX_UL_HEADERLEN 4
 #define SFX_UL_PAYLOADOFFSET 10 /* TODO: Unused */
 #define SFX_UL_MAX_FRAMELEN 26
-#define SFX_UL_MAX_PAYLOADLEN 18
-#define SFX_UL_MAX_PAYLOADLEN_WITH_HMAC SFX_UL_MAX_PAYLOADLEN + 5
-#define SFX_UL_MAX_HMACLEN 5
+#define SFX_UL_MAX_PACKETLEN 20
+#define SFX_UL_MAX_MACLEN 5
 #define SFX_UL_CRCLEN 2
 #define SFX_UL_HMACRESERVELEN 2
 

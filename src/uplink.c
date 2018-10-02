@@ -6,6 +6,10 @@
 #include "uplink.h"
 #include "common.h"
 
+uint8_t SFX_UL_PREAMBLE[] = {
+	0xaa, 0xaa, 0xa0
+};
+
 /**
  * @brief Set nibble (4 bits) in buffer to value
  * @param buffer Buffer to modify
@@ -45,7 +49,7 @@ uint8_t getnibble(uint8_t *buffer, uint8_t nibble)
  * @length_nibbles Length of unsigned integer value, in nibbles (up to 8)
  * @return 32-bit unsigned integer value that was read
  */
-uint32_t getvalue(uint8_t *buffer, uint8_t offset_nibbles, uint8_t length_nibbles)
+uint32_t getvalue_nibbles(uint8_t *buffer, uint8_t offset_nibbles, uint8_t length_nibbles)
 {
 	uint32_t retval = 0;
 	for (uint8_t i = 0; i < length_nibbles; ++i)
@@ -54,34 +58,45 @@ uint32_t getvalue(uint8_t *buffer, uint8_t offset_nibbles, uint8_t length_nibble
 	return retval;
 }
 
+void setvalue_nibbles(uint8_t *buffer, uint8_t offset_nibbles, uint8_t length_nibbles, uint32_t value) {
+	for (uint8_t i = 0; i < length_nibbles; ++i)
+		setnibble(buffer, offset_nibbles + i, (value >> (4 * (length_nibbles - i - 1))) & 0x0f);
+}
+
 /**
  * @brief Copy data from input buffer to output buffer at arbitrary nibble offsets
  * @param outbuffer Output buffer
  * @param inbuffer Input buffer
- * @param offset_nibbles Offset at which to start copying, in nibbles
+ * @param inoffset_nibbles Offset at which to start reading from inbuffer, in nibbles
+ * @param outoffset_nibbles Offset at which to start writing to outbuffer, in nibbles
  * @param length_nibbles Length of data to copy, in nibbles
  */
-void memcpy_nibbles(uint8_t *outbuffer, uint8_t *inbuffer, uint8_t offset_nibbles, uint8_t length_nibbles) {
+void memcpy_nibbles(uint8_t *outbuffer, uint8_t *inbuffer, uint8_t inoffset_nibbles, uint8_t outoffset_nibbles, uint8_t length_nibbles) {
 	for (uint8_t i = 0; i < length_nibbles; ++i)
-		setnibble(outbuffer, i, getnibble(inbuffer, offset_nibbles + i));
+		setnibble(outbuffer, outoffset_nibbles + i, getnibble(inbuffer, inoffset_nibbles + i));
 }
 
 /**
  * @brief Convolutional coder, multiplies input binary string U(X) with generator polynomial G(X) to produce output: V(X) = U(X) * G(X) under GF(2)-arithmetic
  * @param inbuffer Input binary string, interpreted as polynomial U(X)
  * @param outbuffer Output binary string, V(X)
- * @param length Length of inbuffer in bytes
+ * @param length Length of inbuffer in bits
  * @param offset_bits Number of bits to skip in input, this many bits will just be ignored and not encoded
  * @param polynomial Generator polynomial G(X) with maximum order 7
  */
-void convcode(uint8_t *inbuffer, uint8_t *outbuffer, uint8_t length, uint16_t offset_bits, uint8_t polynomial)
+void convcode(uint8_t *inbuffer, uint8_t *outbuffer, uint8_t length_bits, uint16_t offset_bits, uint8_t polynomial)
 {
 	uint8_t i;
 	int8_t bit;
 	uint8_t shiftregister = 0x00;
 
-	for (i = offset_bits / 8; i < length; ++i) {
-		for (bit = i == offset_bits / 8 ? 7 - offset_bits % 8 : 7; bit >= 0; --bit) {
+	uint8_t bitcount_in_last_byte = length_bits % 8;
+	bool skip_last_byte = bitcount_in_last_byte == 0;
+
+	for (i = offset_bits / 8; i < length_bits / 8 + 1; ++i) {
+		bool is_first_byte = (i == offset_bits / 8);
+		bool is_last_byte = (i == length_bits / 8);
+		for (bit = is_first_byte ? 7 - offset_bits % 8 : 7; (bit >= is_last_byte ? 8 - bitcount_in_last_byte : 0) && !(is_last_byte && skip_last_byte); --bit) {
 			bool in = (0x01 & (inbuffer[i] >> bit)) != 0;
 			shiftregister = (shiftregister << 1) | (in ? 0x01 : 0x00);
 
@@ -98,17 +113,22 @@ void convcode(uint8_t *inbuffer, uint8_t *outbuffer, uint8_t length, uint16_t of
  * @brief Convolutional "decoder", does not take care of error correction, but simply reverses the convolutional coding applied by ::convcode. Realizes the polynomial division U(X) = V(X) / G(X) under GF(2)-arithmetic
  * @param inbuffer Input binary string, interpreted as polynomial V(X)
  * @param outbuffer Output binary string, U(X)
- * @param length Length of inbuffer in bytes
+ * @param length_bits Length of inbuffer in bits
  * @param offset_bits Number of bits to skip in input, this many bits will just be ignored and not decoded
  * @param polynomial Generator polynomial G(X) with maximum order 7. Only polynomials with the LSB set (corresponds to "1") are supported.
  */
-void unconvcode(uint8_t *inbuffer, uint8_t *outbuffer, uint8_t length, uint16_t offset_bits, uint8_t polynomial) {
+void unconvcode(uint8_t *inbuffer, uint8_t *outbuffer, uint8_t length_bits, uint16_t offset_bits, uint8_t polynomial) {
 	uint8_t i;
 	int8_t bit;
 	uint8_t shiftregister = 0x00;
 
-	for (i = offset_bits / 8; i < length; ++i) {
-		for (bit = i == offset_bits / 8 ? 7 - offset_bits % 8 : 7; bit >= 0; --bit) {
+	uint8_t bitcount_in_last_byte = length_bits % 8;
+	bool skip_last_byte = bitcount_in_last_byte == 0;
+
+	for (i = offset_bits / 8; i < length_bits / 8 + 1; ++i) {
+		bool is_first_byte = (i == offset_bits / 8);
+		bool is_last_byte = (i == length_bits / 8);
+		for (bit = is_first_byte ? 7 - offset_bits % 8 : 7; (bit >= is_last_byte ? 8 - bitcount_in_last_byte : 0) && !(is_last_byte && skip_last_byte); --bit) {
 			shiftregister = (shiftregister >> 1);
 			bool in = (0x01 & (inbuffer[i] >> bit)) != 0;
 			bool out = (shiftregister & 0x01) ^ in;
@@ -184,9 +204,7 @@ uint8_t sfx_uplink_get_hmac(uint8_t *packetcontent, uint8_t payloadlen, uint8_t 
 	return maclen;
 }
 
-// TODO: fix nomenclaature ("payload")
 // TODO: #define offsets with constants in header
-// TODO: output should not contain preamble, renard should take of that
 /**
  * @brief: Generate raw Sigfox uplink frame for the given frame contents
  * @param uplink: The content of the payload to encode
@@ -198,16 +216,12 @@ void sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, sfx_ul_encode
 	uint8_t i;
 	uint8_t replica;
 
-	// All replicas: Preamble and frame type
+	/*
+	 * All replicas: Set frame type, indicates transmission count (initial / replica) and frame class
+	 * Three general types of frame classes:
+	 * Single bit (class A), 1 byte (class B), 4 / 8 / 12 bytes (classes C / D / E)
+	 */
 	for (replica = 0; replica < 3; ++replica) {
-		// Preamble is 5 (= SFX_UL_PREAMBLELEN_NIBBLES) times 0b1010 = 0xa
-		for (i = 0; i < SFX_UL_PREAMBLELEN_NIBBLES; ++i)
-			setnibble(encoded->frame[replica], i, 0xa);
-
-		// Frame type also defines message length, three cases:
-		// * single bit (class A)
-		// * 1 byte (class B)
-		// * 4 / 8 / 12 bytes (class C/D/E)
 		uint16_t ftype;
 		if (uplink.singlebit)
 			ftype = frametypes[replica][0];
@@ -216,87 +230,93 @@ void sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, sfx_ul_encode
 		else
 			ftype = frametypes[replica][(uplink.msglen - 1) / 4 + 2];
 
-		setnibble(encoded->frame[replica], 5, (ftype & 0xf00) >> 8);
-		setnibble(encoded->frame[replica], 6, (ftype & 0x0f0) >> 4);
-		setnibble(encoded->frame[replica], 7, (ftype & 0x00f) >> 0);
+		setnibble(encoded->frame[replica], 0, (ftype & 0xf00) >> 8);
+		setnibble(encoded->frame[replica], 1, (ftype & 0x0f0) >> 4);
+		setnibble(encoded->frame[replica], 2, (ftype & 0x00f) >> 0);
 	}
 
-	// Construct payload: flags, sequence number, device ID, message
-	uint8_t payload[SFX_UL_MAX_PAYLOADLEN];
+	/*
+	 * Construct packet consisting of flags, sequence number, device ID, message and MAC
+	 * Length of MAC is at least 2, but may be extended
+	 */
+	uint8_t packet[SFX_UL_MAX_PACKETLEN];
 	uint8_t flags = 0x0;
-	uint8_t paddinglen = (12 - uplink.msglen) % 4;
 
-	// Special case: Special frame format for single-byte messages, therefore
-	// single-byte messages don't need padding
-	if (uplink.msglen == 1)
-		paddinglen = 0;
-
-	// For single bit messages:
-	// MSB of flag nibble is always 1, second bit is the message
-	// content (true or false)
-	if (uplink.singlebit)
+	/*
+	 * Flags: Three special cases:
+	 * - class A (single bit) messages: MSB of flag nibble is always 1, second bit is the message content (true / false)
+	 * - class B: Length of MAC is always 2, thus flags are zero
+	 * - class C / D / E: Length of MAC = 2 + <integer representation of upper two bits of flags>
+	 */
+	uint8_t maclen;
+	if (uplink.singlebit) {
+		maclen = SFX_UL_HMACRESERVELEN;
 		flags |= 0b1000 | ((uplink.msg[0] == 0) ? 0b0000 : 0b0100);
-
-	// For multiple byte messages:
-	// Upper two bits of flags define how many bytes in the message are
-	// padded (with parts of the HMAC)
-	else
-		flags |= paddinglen << 2;
+	} else if (uplink.msglen == 1) {
+		maclen = SFX_UL_HMACRESERVELEN;
+	} else {
+		maclen = (12 - uplink.msglen) % 4 + SFX_UL_HMACRESERVELEN;
+		flags |= (maclen - 2) << 2;
+	}
 
 	// Set downlink bit in flags if requested
 	if (uplink.request_downlink)
 		flags |= 0b0010;
 
-	setnibble(payload, 0, flags);
-	setnibble(payload, 1, (common.seqnum & 0xf00) >> 8);
-	setnibble(payload, 2, (common.seqnum & 0x0f0) >> 4);
-	setnibble(payload, 3, (common.seqnum & 0x00f) >> 0);
+	setnibble(packet, 0, flags);
 
-	payload[2] = (common.devid & 0x000000ff) >> 0;
-	payload[3] = (common.devid & 0x0000ff00) >> 8;
-	payload[4] = (common.devid & 0x00ff0000) >> 16;
-	payload[5] = (common.devid & 0xff000000) >> 24;
+	/*
+	 * Sequence Number (SN): 12 bits
+	 */
+	setnibble(packet, 1, (common.seqnum & 0xf00) >> 8);
+	setnibble(packet, 2, (common.seqnum & 0x0f0) >> 4);
+	setnibble(packet, 3, (common.seqnum & 0x00f) >> 0);
 
-	// Add message content
+	/*
+	 * Device ID: Little Endian format
+	 */
+	packet[2] = (common.devid & 0x000000ff) >> 0;
+	packet[3] = (common.devid & 0x0000ff00) >> 8;
+	packet[4] = (common.devid & 0x00ff0000) >> 16;
+	packet[5] = (common.devid & 0xff000000) >> 24;
+
+	/*
+	 * Payload
+	 */
 	if (!uplink.singlebit)
 		for (i = 0; i < uplink.msglen; ++i)
-			payload[6 + i] = uplink.msg[i];
+			packet[6 + i] = uplink.msg[i];
 
-	// Generate HMAC for payload (actually using a CBC-MAC algorithm)
-	// Input for CBC-MAC algorithm is a repetition of the payload over the whole length of
-	// all input blocks. If payload is longer than 16 byte, if two blocks are used; otherwise one.
-	uint8_t hmac[SFX_UL_MAX_HMACLEN];
-	uint8_t hmaclen = sfx_uplink_get_hmac(payload, uplink.msglen, common.key, hmac);
+	/*
+	 * Message Authentication Code (MAC)
+	 * The length of the MAC in the frame depends on the length of the payload.
+	 * It is at least 2 bytes long, but can be extended to 3 / 4 / 5 bytes for frame classes C / D / E.
+	 */
+	uint8_t mac[SFX_UL_MAX_MACLEN];
+	sfx_uplink_get_hmac(packet, uplink.msglen, common.key, mac);
+	uint8_t mac_offset = (SFX_UL_FLAGLEN_NIBBLES + SFX_UL_SNLEN_NIBBLES + SFX_UL_DEVIDLEN_NIBBLES) / 2 + (uplink.singlebit ? 0 : uplink.msglen);
 
-	// The length of the HMAC included in the frame depends on the length of the 
-	// message. It is at least 2 bytes, but if the message has to be padded, the
-	// first bytes of the HMAC are used as padding.
-	uint8_t payloadlen = 6 + (uplink.singlebit ? 0 : uplink.msglen);
-	uint8_t payload_with_hmac[SFX_UL_MAX_PAYLOADLEN_WITH_HMAC];
+	for (i = 0; i < maclen; ++i)
+		packet[mac_offset + i] = mac[i];
 
-	for (i = 0; i < payloadlen; ++i)
-		payload_with_hmac[i] = payload[i];
+	/*
+	 * Copy whole packet to frame buffer, including HMAC and CRC, for first transmission only
+	 */
+	uint8_t packetlen = mac_offset + maclen;
+	memcpy_nibbles(encoded->frame[0], packet, 0, SFX_UL_FTYPELEN_NIBBLES, packetlen * 2);
 
-	for (i = 0; i < hmaclen; ++i)
-		payload_with_hmac[payloadlen + i] = hmac[i];
+	/*
+	 * Add CRC to frame, takes care of bitwise inversion of CRC value
+	 */
+	uint16_t crc16 = ~SIGFOX_CRC_crc16(packet, packetlen);
+	setvalue_nibbles(encoded->frame[0], SFX_UL_FTYPELEN_NIBBLES + packetlen * 2, 4, crc16);
+	encoded->framelen_nibbles = SFX_UL_FTYPELEN_NIBBLES + packetlen * 2 + SFX_UL_CRCLEN_NIBBLES;
 
-	// Add CRC to message (CRC is inverted)
-	uint8_t payload_with_hmac_length = payloadlen + hmaclen;
-	uint16_t crc16 = ~SIGFOX_CRC_crc16(payload_with_hmac, payload_with_hmac_length);
-
-	// Copy whole message to frame buffer including HMAC and CRC, for first transmission only
-	for (i = 0; i < payload_with_hmac_length; ++i)
-		encoded->frame[0][4 + i] = payload_with_hmac[i];
-
-	encoded->frame[0][SFX_UL_HEADERLEN + payload_with_hmac_length + 0] = (crc16 & 0xff00) >> 8;
-	encoded->frame[0][SFX_UL_HEADERLEN + payload_with_hmac_length + 1] = crc16 & 0xff;
-
-	uint8_t totallen_bytes = SFX_UL_HEADERLEN + payload_with_hmac_length + SFX_UL_CRCLEN;
-	encoded->framelen_nibbles = totallen_bytes * 2 - SFX_UL_PREAMBLELEN_NIBBLES;
-
-	// Encode replica transmissions using (7, 5) convolutional code
-	convcode(encoded->frame[0], encoded->frame[1], totallen_bytes, SFX_UL_HEADERLEN * 8, 7);
-	convcode(encoded->frame[0], encoded->frame[2], totallen_bytes, SFX_UL_HEADERLEN * 8, 5);
+	/*
+	 * Encode replica transmissions using (7, 5) convolutional code
+	 */
+	convcode(encoded->frame[0], encoded->frame[1], encoded->framelen_nibbles * 4, SFX_UL_FTYPELEN_NIBBLES * 4, 07);
+	convcode(encoded->frame[0], encoded->frame[2], encoded->framelen_nibbles * 4, SFX_UL_FTYPELEN_NIBBLES * 4, 05);
 }
 
 /**
@@ -355,9 +375,9 @@ sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out
 	if (best_replica == 0)
 		memcpy(frame_plain, frame, ceil_framelen_bytes);
 	else if (best_replica == 1)
-		unconvcode(frame, frame_plain, ceil_framelen_bytes, SFX_UL_FTYPELEN_NIBBLES * 4, 7);
+		unconvcode(frame, frame_plain, ceil_framelen_bytes * 8, SFX_UL_FTYPELEN_NIBBLES * 4, 7);
 	else if (best_replica == 2)
-		unconvcode(frame, frame_plain, ceil_framelen_bytes, SFX_UL_FTYPELEN_NIBBLES * 4, 5);
+		unconvcode(frame, frame_plain, ceil_framelen_bytes * 8, SFX_UL_FTYPELEN_NIBBLES * 4, 5);
 	/*
 	 * Extract basic metadata from uplink frame
 	 */
@@ -367,22 +387,22 @@ sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out
 	#define PAYLOAD_OFFSET_NIBBLES DEVID_OFFSET_NIBBLES + SFX_UL_DEVIDLEN_NIBBLES
 
 	// Device ID is encoded in little endian format - reverse byte order
-	uint32_t devid_le = getvalue(frame_plain, DEVID_OFFSET_NIBBLES, SFX_UL_DEVIDLEN_NIBBLES);
+	uint32_t devid_le = getvalue_nibbles(frame_plain, DEVID_OFFSET_NIBBLES, SFX_UL_DEVIDLEN_NIBBLES);
 	common->devid = (devid_le & 0x000000ff) << 24;
 	common->devid = (devid_le & 0x0000ff00) << 8;
 	common->devid = (devid_le & 0x00ff0000) >> 8;
 	common->devid = (devid_le & 0xff000000) >> 24;
-	common->seqnum = getvalue(frame_plain, SN_OFFSET_NIBBLES, SFX_UL_SNLEN_NIBBLES);
+	common->seqnum = getvalue_nibbles(frame_plain, SN_OFFSET_NIBBLES, SFX_UL_SNLEN_NIBBLES);
 
 	// Read and interpret flags
-	uint8_t flags = getvalue(frame_plain, 3, 1);
+	uint8_t flags = getvalue_nibbles(frame_plain, 3, 1);
 	uplink_out->request_downlink = flags & 0b0010 ? true : false;
 	uint8_t paddinglen = uplink_out->singlebit ? 0 : flags >> 2;
 	uplink_out->msglen = payloadlen_bytes - paddinglen;
 
 	// Copy payload / message to uplink_out
 	if (!uplink_out->singlebit)
-		memcpy_nibbles(uplink_out->msg, frame_plain, PAYLOAD_OFFSET_NIBBLES, uplink_out->msglen * 2);
+		memcpy_nibbles(uplink_out->msg, frame_plain, PAYLOAD_OFFSET_NIBBLES, 0, uplink_out->msglen * 2);
 	else
 		uplink_out->msg[0] = flags & 0b0100 ? 0x01 : 0x00;
 
@@ -393,16 +413,16 @@ sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out
 	 * 'framecontent_len_nibbles' is even (no half-bytes)
 	 */
 	#define FRAMECONTENT_NIBBLES_WITHOUT_PAYLOAD SFX_UL_FLAGLEN_NIBBLES + SFX_UL_SNLEN_NIBBLES + SFX_UL_DEVIDLEN_NIBBLES + SFX_UL_HMACRESERVERLEN_NIBBLES
-	uint8_t framecontent[SFX_UL_MAX_PAYLOADLEN];
+	uint8_t framecontent[SFX_UL_MAX_FRAMELEN];
 	uint8_t framecontent_len_nibbles = FRAMECONTENT_NIBBLES_WITHOUT_PAYLOAD + 2 * payloadlen_bytes;
 	uint8_t framecontent_len = framecontent_len_nibbles / 2;
 
-	memcpy_nibbles(framecontent, frame_plain, FLAGS_OFFSET_NIBBLES, framecontent_len_nibbles);
+	memcpy_nibbles(framecontent, frame_plain, FLAGS_OFFSET_NIBBLES, 0, framecontent_len_nibbles);
 
 	uint8_t crc16_offset_nibbles = SFX_UL_FTYPELEN_NIBBLES + framecontent_len_nibbles;
 
 	uint16_t crc16 = ~SIGFOX_CRC_crc16(framecontent, framecontent_len);
-	uint16_t crc16_frame = getvalue(frame_plain, crc16_offset_nibbles, SFX_UL_CRCLEN_NIBBLES);
+	uint16_t crc16_frame = getvalue_nibbles(frame_plain, crc16_offset_nibbles, SFX_UL_CRCLEN_NIBBLES);
 
 	if (crc16 != crc16_frame)
 		return SFX_ULD_ERR_CRC_INVALID;
@@ -411,7 +431,7 @@ sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out
 	 * Check HMAC (optional)
 	 */
 	if (check_mac) {
-		uint8_t hmac[SFX_UL_MAX_HMACLEN];
+		uint8_t hmac[SFX_UL_MAX_MACLEN];
 		uint8_t hmaclen = sfx_uplink_get_hmac(framecontent, uplink_out->msglen, common->key, hmac);
 
 		for (uint8_t i = 0; i < hmaclen; ++i)
