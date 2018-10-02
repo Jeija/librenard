@@ -113,24 +113,25 @@ uint8_t payloadlen_type_to_addlen[] = {
 	0, 1, 4, 8, 12
 };
 
-/*
- * Calculate HMAC for given frame and given private key
- * msglen: Length of payload inside frame (excluding padding with HMAC) in bytes
- * Number between 0 and 12, 0 is for single-bit messages
- *
- * return value: length of HMAC in bytes
+/**
+ * @brief Calculate MAC for given frame and given private key
+ * @param packetcontent Buffer containing all bytes in uplink packet except for the MAC tag itself (flags, SN, device ID, payload)
+ * @param payloadlen Length of payload inside packet in bytes (0 to 12, where 0 is for single-bit messages), length of `packetcontent` is thus 6 + payloadlen
+ * @param key Buffer containing the NAK (secret key)
+ * @param mac Output, message authentication code (MAC)
+ * @return Length of MAC in bytes
  */
-uint8_t sfx_uplink_get_hmac(uint8_t *framecontent, uint8_t msglen, uint8_t *key, uint8_t *hmac) {
+uint8_t sfx_uplink_get_hmac(uint8_t *packetcontent, uint8_t payloadlen, uint8_t *key, uint8_t *mac) {
 	// Fill two 128bit-AES blocks with data to encrypt, even if maybe just one of them is used
 	// authentic_data_length: not only the payload, but also flags, SN and device id are begin protected
-	// (authenticity checked) by HMAC, therefore the length of data to be encrypted is greater than just
+	// (authenticity checked) by MAC, therefore the length of data to be encrypted is greater than just
 	// the message payload
 	#define ADDITIONAL_LENGTH_BYTES ((SFX_UL_FLAGLEN_NIBBLES + SFX_UL_SNLEN_NIBBLES + SFX_UL_DEVIDLEN_NIBBLES) / 2)
-	uint8_t authentic_data_length = ADDITIONAL_LENGTH_BYTES + msglen;
+	uint8_t authentic_data_length = ADDITIONAL_LENGTH_BYTES + payloadlen;
 	uint8_t data_to_encrypt[32];
 	uint8_t j = 0;
 	for (uint8_t i = 0; i < 32; ++i) {
-		data_to_encrypt[i] = framecontent[j];
+		data_to_encrypt[i] = packetcontent[j];
 		j = (j + 1) % authentic_data_length;
 	}
 
@@ -139,23 +140,24 @@ uint8_t sfx_uplink_get_hmac(uint8_t *framecontent, uint8_t msglen, uint8_t *key,
 	uint8_t blocknum = (authentic_data_length > 16 ? 2 : 1);
 
 	// Encrypt authenticity-checked data with 'private' AES key,
-	// beginning of encrypted_data is hmac
+	// beginning of encrypted_data is mac
 	uint8_t encrypted_data[32];
 	aes_128_cbc_encrypt(encrypted_data, data_to_encrypt, blocknum * 16, key);
 
-	// The length of the HMAC included in the frame depends on the length of the 
+	// The length of the MAC included in the frame depends on the length of the 
 	// message. It is at least 2 bytes, but if the message has to be padded, the
-	// first bytes of the HMAC are used as padding.
+	// first bytes of the MAC are used as padding.
 	// Special case: Single-byte messages have a special frame type, don't have
 	// to be padded.
-	uint8_t hmaclen = SFX_UL_HMACRESERVELEN + (msglen == 1 ? 0 : ((12 - msglen) % 4));
-	memcpy(hmac, &encrypted_data[(blocknum - 1) * 16], hmaclen);
+	uint8_t maclen = SFX_UL_HMACRESERVELEN + (payloadlen == 1 ? 0 : ((12 - payloadlen) % 4));
+	memcpy(mac, &encrypted_data[(blocknum - 1) * 16], maclen);
 
-	return hmaclen;
+	return maclen;
 }
 
 // TODO: fix nomenclaature ("payload")
 // TODO: #define offsets with constants in header
+// TODO: output should not contain preamble, renard should take of that
 /**
  * @brief: Generate raw Sigfox uplink frame for the given frame contents
  * @param uplink: The content of the payload to encode
@@ -270,7 +272,7 @@ void sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, sfx_ul_encode
 
 /**
  * @brief: Retrieve contents of Sigfox uplink from given raw frame
- * @param to_decode: The raw contents of the Sigfox frame to decode, without preamble (any replica)
+ * @param to_decode: The raw contents of the Sigfox uplink frame to decode, without preamble (any replica)
  * @param uplink_out: Output, decoded plain contents of uplink frame
  * @param common: General information about the Sigfox object and its state. NAK is optional and only required, if MAC tag checking is enabled.
  * @param check_mac: If true, check MAC tag of uplink frame. In this case, a valid NAK has to be provided.

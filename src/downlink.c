@@ -85,7 +85,14 @@ uint16_t sfx_downlink_get_hmac(uint8_t *message, sfx_commoninfo common) {
 	return (encrypted_data[0] << 8) | encrypted_data[1];
 }
 
-void sfx_downlink_decode(sfx_dl_encoded encoded, sfx_commoninfo common, sfx_dl_plain *decoded)
+/**
+ * @brief Retrieve contents of Sigfox downlink from given raw frame
+ * @param to_decode The raw contents of the Sigfox downlink frame to decode, without preamble
+ * @param common General information about the Sigfox object and its state. If a wrong NAK is provided, _s_sfx_dl_plain::hmac_ok will be false, but decoding will still work.
+ * @param decoded Output, contents of Sigfox frame and whether MAC / CRC match
+ * @attention This function applies Forward Error Correction (FEC). If FEC has occurred during decoding, _s_sfx_dl_plain::fec_corrected will be set to true in the output
+ */
+void sfx_downlink_decode(sfx_dl_encoded to_decode, sfx_commoninfo common, sfx_dl_plain *decoded)
 {
 	decoded->crc_ok = false;
 	decoded->hmac_ok = false;
@@ -94,7 +101,7 @@ void sfx_downlink_decode(sfx_dl_encoded encoded, sfx_commoninfo common, sfx_dl_p
 	 * Descramble payload (scrambler / descrambler are identical)
 	 */
 	uint8_t payload[SFX_DL_PAYLOADLEN];
-	memcpy(payload, encoded.payload, sizeof(payload));
+	memcpy(payload, to_decode.payload, sizeof(payload));
 	sfx_downlink_payload_scramble(payload, common);
 
 	/*
@@ -145,10 +152,16 @@ void sfx_downlink_decode(sfx_dl_encoded encoded, sfx_commoninfo common, sfx_dl_p
 	decoded->hmac_ok = ((hmac & 0xff00) >> 8 == payload[SFX_DL_HMACOFFSET] && (hmac & 0xff) == payload[SFX_DL_HMACOFFSET + 1]);
 }
 
+/**
+ * @brief Generate raw Sigfox downlink frame from given contents, for given Sigfox object and its state
+ * @param to_encode Content of raw Sigfox frame, only _s_sfx_dl_plain::msg has to be set, all other members of ::sfx_dl_plain are ignored.
+ * @param common General information about the Sigfox object and its state
+ * @param encoded Output, raw Sigfox downlink frame, excluding preamble
+ */
 void sfx_downlink_encode(sfx_dl_plain to_encode, sfx_commoninfo common, sfx_dl_encoded *encoded)
 {
 	/*
-	 * Calculate message HMAC
+	 * Calculate message MAC
 	 */
 	uint16_t hmac = sfx_downlink_get_hmac(to_encode.msg, common);
 	encoded->payload[SFX_DL_HMACOFFSET] = (hmac & 0xff00) >> 8;
