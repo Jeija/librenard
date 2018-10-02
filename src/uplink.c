@@ -1,4 +1,3 @@
-#include <byteswap.h>
 #include <string.h>
 #include <stdio.h>
 
@@ -339,7 +338,10 @@ sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out
 
 	// Device ID is encoded in little endian format - reverse byte order
 	uint32_t devid_le = getvalue(frame_plain, DEVID_OFFSET_NIBBLES, SFX_UL_DEVIDLEN_NIBBLES);
-	common->devid = __bswap_32(devid_le);
+	common->devid = (devid_le & 0x000000ff) << 24;
+	common->devid = (devid_le & 0x0000ff00) << 8;
+	common->devid = (devid_le & 0x00ff0000) >> 8;
+	common->devid = (devid_le & 0xff000000) >> 24;
 	common->seqnum = getvalue(frame_plain, SN_OFFSET_NIBBLES, SFX_UL_SNLEN_NIBBLES);
 
 	// Read and interpret flags
