@@ -389,9 +389,9 @@ sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out
 	// Device ID is encoded in little endian format - reverse byte order
 	uint32_t devid_le = getvalue_nibbles(frame_plain, DEVID_OFFSET_NIBBLES, SFX_UL_DEVIDLEN_NIBBLES);
 	common->devid = (devid_le & 0x000000ff) << 24;
-	common->devid = (devid_le & 0x0000ff00) << 8;
-	common->devid = (devid_le & 0x00ff0000) >> 8;
-	common->devid = (devid_le & 0xff000000) >> 24;
+	common->devid |= (devid_le & 0x0000ff00) << 8;
+	common->devid |= (devid_le & 0x00ff0000) >> 8;
+	common->devid |= (devid_le & 0xff000000) >> 24;
 	common->seqnum = getvalue_nibbles(frame_plain, SN_OFFSET_NIBBLES, SFX_UL_SNLEN_NIBBLES);
 
 	// Read and interpret flags
