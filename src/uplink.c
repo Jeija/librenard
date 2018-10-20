@@ -155,11 +155,10 @@ uint16_t frametypes[3][5] = {
 
 /*
  * Translation table:
- * column in 'frametypes' to message payload length *including*
- * HMAC padded into payload field in bytes
+ * Column in 'frametypes' to packet (Flags + SN + Device ID + Payload + MAC) length
  */
-uint8_t payloadlen_type_to_addlen[] = {
-	0, 1, 4, 8, 12
+uint8_t frametype_to_packetlen[] = {
+	8, 9, 12, 16, 20
 };
 
 /**
@@ -170,7 +169,7 @@ uint8_t payloadlen_type_to_addlen[] = {
  * @param mac Output, message authentication code (MAC)
  * @return Length of MAC in bytes
  */
-uint8_t sfx_uplink_get_hmac(uint8_t *packetcontent, uint8_t payloadlen, uint8_t *key, uint8_t *mac) {
+uint8_t sfx_uplink_get_mac(uint8_t *packetcontent, uint8_t payloadlen, uint8_t *key, uint8_t *mac) {
 	// Fill two 128bit-AES blocks with data to encrypt, even if maybe just one of them is used
 	// authentic_data_length: not only the payload, but also flags, SN and device id are begin protected
 	// (authenticity checked) by MAC, therefore the length of data to be encrypted is greater than just
@@ -198,21 +197,25 @@ uint8_t sfx_uplink_get_hmac(uint8_t *packetcontent, uint8_t payloadlen, uint8_t 
 	// first bytes of the MAC are used as padding.
 	// Special case: Single-byte messages have a special frame type, don't have
 	// to be padded.
-	uint8_t maclen = SFX_UL_HMACRESERVELEN + (payloadlen == 1 ? 0 : ((12 - payloadlen) % 4));
+	uint8_t maclen = SFX_UL_MIN_MACLEN + (payloadlen == 1 ? 0 : ((SFX_UL_MAX_PAYLOADLEN - payloadlen) % 4));
 	memcpy(mac, &encrypted_data[(blocknum - 1) * 16], maclen);
 
 	return maclen;
 }
 
-// TODO: #define offsets with constants in header
 /**
  * @brief: Generate raw Sigfox uplink frame for the given frame contents
  * @param uplink: The content of the payload to encode
  * @param common: General information about the Sigfox object and its state
  * @param encoded: Output, raw encoded Sigfox uplink frame(s), including preamble
  */
-void sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, sfx_ul_encoded *encoded)
+sfx_ule_err sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, sfx_ul_encoded *encoded)
 {
+	if (uplink.payloadlen > SFX_UL_MAX_PAYLOADLEN)
+		return SFX_ULE_ERR_PAYLOAD_TOO_LONG;
+	if (uplink.singlebit && uplink.payloadlen != 0)
+		return SFX_ULE_SINGLEBIT_MISMATCH;
+
 	uint8_t i;
 	uint8_t replica;
 
@@ -225,10 +228,10 @@ void sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, sfx_ul_encode
 		uint16_t ftype;
 		if (uplink.singlebit)
 			ftype = frametypes[replica][0];
-		else if (uplink.msglen == 1)
+		else if (uplink.payloadlen == 1)
 			ftype = frametypes[replica][1];
 		else
-			ftype = frametypes[replica][(uplink.msglen - 1) / 4 + 2];
+			ftype = frametypes[replica][(uplink.payloadlen - 1) / 4 + 2];
 
 		setnibble(encoded->frame[replica], 0, (ftype & 0xf00) >> 8);
 		setnibble(encoded->frame[replica], 1, (ftype & 0x0f0) >> 4);
@@ -250,12 +253,12 @@ void sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, sfx_ul_encode
 	 */
 	uint8_t maclen;
 	if (uplink.singlebit) {
-		maclen = SFX_UL_HMACRESERVELEN;
-		flags |= 0b1000 | ((uplink.msg[0] == 0) ? 0b0000 : 0b0100);
-	} else if (uplink.msglen == 1) {
-		maclen = SFX_UL_HMACRESERVELEN;
+		maclen = SFX_UL_MIN_MACLEN;
+		flags |= 0b1000 | ((uplink.payload[0] == 0) ? 0b0000 : 0b0100);
+	} else if (uplink.payloadlen == 1) {
+		maclen = SFX_UL_MIN_MACLEN;
 	} else {
-		maclen = (12 - uplink.msglen) % 4 + SFX_UL_HMACRESERVELEN;
+		maclen = (SFX_UL_MAX_PAYLOADLEN - uplink.payloadlen) % 4 + SFX_UL_MIN_MACLEN;
 		flags |= (maclen - 2) << 2;
 	}
 
@@ -284,8 +287,8 @@ void sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, sfx_ul_encode
 	 * Payload
 	 */
 	if (!uplink.singlebit)
-		for (i = 0; i < uplink.msglen; ++i)
-			packet[6 + i] = uplink.msg[i];
+		for (i = 0; i < uplink.payloadlen; ++i)
+			packet[6 + i] = uplink.payload[i];
 
 	/*
 	 * Message Authentication Code (MAC)
@@ -293,14 +296,14 @@ void sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, sfx_ul_encode
 	 * It is at least 2 bytes long, but can be extended to 3 / 4 / 5 bytes for frame classes C / D / E.
 	 */
 	uint8_t mac[SFX_UL_MAX_MACLEN];
-	sfx_uplink_get_hmac(packet, uplink.msglen, common.key, mac);
-	uint8_t mac_offset = (SFX_UL_FLAGLEN_NIBBLES + SFX_UL_SNLEN_NIBBLES + SFX_UL_DEVIDLEN_NIBBLES) / 2 + (uplink.singlebit ? 0 : uplink.msglen);
+	sfx_uplink_get_mac(packet, uplink.payloadlen, common.key, mac);
+	uint8_t mac_offset = (SFX_UL_FLAGLEN_NIBBLES + SFX_UL_SNLEN_NIBBLES + SFX_UL_DEVIDLEN_NIBBLES) / 2 + (uplink.singlebit ? 0 : uplink.payloadlen);
 
 	for (i = 0; i < maclen; ++i)
 		packet[mac_offset + i] = mac[i];
 
 	/*
-	 * Copy whole packet to frame buffer, including HMAC and CRC, for first transmission only
+	 * Copy whole packet to frame buffer, including MAC and CRC, for first transmission only
 	 */
 	uint8_t packetlen = mac_offset + maclen;
 	memcpy_nibbles(encoded->frame[0], packet, 0, SFX_UL_FTYPELEN_NIBBLES, packetlen * 2);
@@ -317,6 +320,8 @@ void sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, sfx_ul_encode
 	 */
 	convcode(encoded->frame[0], encoded->frame[1], encoded->framelen_nibbles * 4, SFX_UL_FTYPELEN_NIBBLES * 4, 07);
 	convcode(encoded->frame[0], encoded->frame[2], encoded->framelen_nibbles * 4, SFX_UL_FTYPELEN_NIBBLES * 4, 05);
+
+	return SFX_ULE_ERR_NONE;
 }
 
 /**
@@ -333,12 +338,14 @@ sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out
 
 	// only odd nibble numbers can naturally occur - discard all frames with even nibble numbers
 	if (to_decode.framelen_nibbles % 2 == 0)
-		return SFX_ULD_ERR_MSGLEN_EVEN;
+		return SFX_ULD_ERR_FRAMELEN_EVEN;
 
+	/*
+	 * Find frame type value from table (indicates replica number / frame length) that matches contained
+	 * frame type best (lowest hamming distance). This way, we can correct up to two erroneous bits
+	 * inside the frame type field.
+	*/
 	uint16_t frametype = ((frame[0] & 0xf0) << 4) | ((frame[0] & 0x0f) << 4) | ((frame[1] & 0xf0) >> 4);
-
-	// find replica / length that matches given frame type best (lowest hamming distance)
-	// this way, we can correct single-bit transmission errors of the frame type
 	uint8_t replica;
 	uint8_t payloadlen_type;
 
@@ -357,27 +364,29 @@ sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out
 		}
 	}
 
-	// length of payload in bytes *including* part of HMAC that is padded to end of payload
-	uint8_t payloadlen_bytes = payloadlen_type_to_addlen[best_payloadlen_type];
+	// length of packet (Flags + SN + Device ID + Payload + MAC) in bytes
+	uint8_t packetlen_bytes = frametype_to_packetlen[best_payloadlen_type];
 
-	// Check if provided payload length matches payload length in frame type
-	if (to_decode.framelen_nibbles != SFX_UL_TOTALLEN_WITHOUT_PAYLOAD_NIBBLES + payloadlen_bytes * 2)
+	// check if frame length indicated by frame type matches actual length of frame
+	if (to_decode.framelen_nibbles != SFX_UL_FTYPELEN_NIBBLES + packetlen_bytes * 2 + SFX_UL_CRCLEN_NIBBLES)
 		return SFX_ULD_ERR_FTYPE_MISMATCH;
 
 	uplink_out->singlebit = (best_payloadlen_type == 0);
 
-	// just allocate the maximum possible frame length (even if it isn't necessary),
-	// so that we don't have to depend on stdlib.h for malloc
+	/*
+	 * Just allocate the maximum possible frame length (even if it isn't necessary),
+	 * so that we don't have to depend on stdlib.h for malloc. Allocates one more nibble than
+	 * required because frames have an odd-nibble length, but we can only allocate bytes.
+	 */
 	uint8_t frame_plain[SFX_UL_MAX_FRAMELEN - SFX_UL_PREAMBLELEN_NIBBLES / 2];
-
-	// ceiled frame length in bytes
 	uint8_t ceil_framelen_bytes = (to_decode.framelen_nibbles + 1) / 2;
 	if (best_replica == 0)
 		memcpy(frame_plain, frame, ceil_framelen_bytes);
 	else if (best_replica == 1)
-		unconvcode(frame, frame_plain, ceil_framelen_bytes * 8, SFX_UL_FTYPELEN_NIBBLES * 4, 7);
+		unconvcode(frame, frame_plain, ceil_framelen_bytes * 8, SFX_UL_FTYPELEN_NIBBLES * 4, 07);
 	else if (best_replica == 2)
-		unconvcode(frame, frame_plain, ceil_framelen_bytes * 8, SFX_UL_FTYPELEN_NIBBLES * 4, 5);
+		unconvcode(frame, frame_plain, ceil_framelen_bytes * 8, SFX_UL_FTYPELEN_NIBBLES * 4, 05);
+
 	/*
 	 * Extract basic metadata from uplink frame
 	 */
@@ -396,47 +405,41 @@ sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out
 
 	// Read and interpret flags
 	uint8_t flags = getvalue_nibbles(frame_plain, 3, 1);
+	uint8_t maclen = SFX_UL_MIN_MACLEN + uplink_out->singlebit ? 0 : flags >> 2;
 	uplink_out->request_downlink = flags & 0b0010 ? true : false;
-	uint8_t paddinglen = uplink_out->singlebit ? 0 : flags >> 2;
-	uplink_out->msglen = payloadlen_bytes - paddinglen;
+	uplink_out->payloadlen = packetlen_bytes - (SFX_UL_FLAGLEN_NIBBLES + SFX_UL_SNLEN_NIBBLES + SFX_UL_DEVIDLEN_NIBBLES + SFX_UL_CRCLEN_NIBBLES) / 2 - maclen;
 
-	// Copy payload / message to uplink_out
+	// Copy frame's payload to uplink_out (decoded properties)
 	if (!uplink_out->singlebit)
-		memcpy_nibbles(uplink_out->msg, frame_plain, PAYLOAD_OFFSET_NIBBLES, 0, uplink_out->msglen * 2);
+		memcpy_nibbles(uplink_out->payload, frame_plain, PAYLOAD_OFFSET_NIBBLES, 0, uplink_out->payloadlen * 2);
 	else
-		uplink_out->msg[0] = flags & 0b0100 ? 0x01 : 0x00;
+		uplink_out->payload[0] = flags & 0b0100 ? 0x01 : 0x00;
 
 	/*
 	 * Check CRC
 	 * CRC is calculated from the frame contents starting at the flags
-	 * 'framecontent' is the section of the frame from flags to HMAC
-	 * 'framecontent_len_nibbles' is even (no half-bytes)
 	 */
-	#define FRAMECONTENT_NIBBLES_WITHOUT_PAYLOAD SFX_UL_FLAGLEN_NIBBLES + SFX_UL_SNLEN_NIBBLES + SFX_UL_DEVIDLEN_NIBBLES + SFX_UL_HMACRESERVERLEN_NIBBLES
-	uint8_t framecontent[SFX_UL_MAX_FRAMELEN];
-	uint8_t framecontent_len_nibbles = FRAMECONTENT_NIBBLES_WITHOUT_PAYLOAD + 2 * payloadlen_bytes;
-	uint8_t framecontent_len = framecontent_len_nibbles / 2;
+	uint8_t packet[SFX_UL_MAX_PACKETLEN];
+	uint8_t crc16_offset_nibbles = SFX_UL_FTYPELEN_NIBBLES + packetlen_bytes * 2;
 
-	memcpy_nibbles(framecontent, frame_plain, FLAGS_OFFSET_NIBBLES, 0, framecontent_len_nibbles);
+	memcpy_nibbles(packet, frame_plain, FLAGS_OFFSET_NIBBLES, 0, packetlen_bytes * 2);
 
-	uint8_t crc16_offset_nibbles = SFX_UL_FTYPELEN_NIBBLES + framecontent_len_nibbles;
-
-	uint16_t crc16 = ~SIGFOX_CRC_crc16(framecontent, framecontent_len);
+	uint16_t crc16 = ~SIGFOX_CRC_crc16(packet, packetlen_bytes);
 	uint16_t crc16_frame = getvalue_nibbles(frame_plain, crc16_offset_nibbles, SFX_UL_CRCLEN_NIBBLES);
 
 	if (crc16 != crc16_frame)
 		return SFX_ULD_ERR_CRC_INVALID;
 
 	/*
-	 * Check HMAC (optional)
+	 * Check MAC (optional)
 	 */
 	if (check_mac) {
-		uint8_t hmac[SFX_UL_MAX_MACLEN];
-		uint8_t hmaclen = sfx_uplink_get_hmac(framecontent, uplink_out->msglen, common->key, hmac);
+		uint8_t mac[SFX_UL_MAX_MACLEN];
+		uint8_t maclen = sfx_uplink_get_mac(packet, uplink_out->payloadlen, common->key, mac);
 
-		for (uint8_t i = 0; i < hmaclen; ++i)
-			if (framecontent[framecontent_len - hmaclen + i] != hmac[i])
-				return SFX_ULD_ERR_HMAC_INVALID;
+		for (uint8_t i = 0; i < maclen; ++i)
+			if (packet[packetlen_bytes - maclen + i] != mac[i])
+				return SFX_ULD_ERR_MAC_INVALID;
 	}
 
 	return SFX_ULD_ERR_NONE;
