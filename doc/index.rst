@@ -14,13 +14,17 @@ A command line interface to ``librenard`` is provided by |renard|_.
 .. |renard-phy| replace:: ``renard-phy``
 .. _renard-phy: https://github.com/Jeija/renard-phy
 
+The following API documentation will give you an overview of how to use ``librenard``.
+For a deeper understanding of the inner workings of ``librenard``, please refer to the Bachelor's Thesis
+*Reverse Engineering of the Sigfox Radio Protocol and Implementation of an Alternative Sigfox Network Stack*.
+
 .. toctree::
         :maxdepth: 2
         :caption: Contents:
 
         uplink
         downlink
-        everything
+	common
 
 Indices and tables
 ==================

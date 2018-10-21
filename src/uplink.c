@@ -6,15 +6,18 @@
 #include "uplink.h"
 #include "common.h"
 
+/**
+ * @brief content of Sigfox's 5-nibble (::SFX_UL_PREAMBLELEN_NIBBLES) uplink preamble, only use first 5 nibbles
+ */
 uint8_t SFX_UL_PREAMBLE[] = {
 	0xaa, 0xaa, 0xa0
 };
 
 /**
- * @brief Set nibble (4 bits) in buffer to value
- * @param buffer Buffer to modify
- * @param nibble Index of nibble in buffer, 0-255
- * @param value Value to set the nibble to, only the 4 lower bits are used
+ * @brief set nibble (4 bits) in buffer to value
+ * @param buffer buffer to modify
+ * @param nibble index of nibble in buffer, 0-255
+ * @param value value to set the nibble to, only the 4 lower bits are used
  */
 void setnibble(uint8_t *buffer, uint8_t nibble, uint8_t value)
 {
@@ -29,10 +32,10 @@ void setnibble(uint8_t *buffer, uint8_t nibble, uint8_t value)
 }
 
 /**
- * @brief Get nibble (4 bits) from buffer
- * @param buffer Buffer to read from
- * @param nibble Index of nibble in buffer, 0-255
- * @return Value of nibble, only the 4 lower bits are used
+ * @brief get nibble (4 bits) from buffer
+ * @param buffer buffer to read from
+ * @param nibble index of nibble in buffer, 0-255
+ * @return value of nibble, only the 4 lower bits are used
  */
 uint8_t getnibble(uint8_t *buffer, uint8_t nibble)
 {
@@ -43,10 +46,10 @@ uint8_t getnibble(uint8_t *buffer, uint8_t nibble)
 }
 
 /**
- * @brief Read unsigned integer value from arbitrary nibble offset in buffer
- * @param buffer Buffer to read from
- * @offset_nibbles Offset at which the first (highest) nibble of the integer value is located
- * @length_nibbles Length of unsigned integer value, in nibbles (up to 8)
+ * @brief read unsigned integer value from arbitrary nibble offset in buffer
+ * @param buffer buffer to read from
+ * @offset_nibbles offset at which the first (highest) nibble of the integer value is located
+ * @length_nibbles length of unsigned integer value, in nibbles (up to 8)
  * @return 32-bit unsigned integer value that was read
  */
 uint32_t getvalue_nibbles(uint8_t *buffer, uint8_t offset_nibbles, uint8_t length_nibbles)
@@ -64,12 +67,12 @@ void setvalue_nibbles(uint8_t *buffer, uint8_t offset_nibbles, uint8_t length_ni
 }
 
 /**
- * @brief Copy data from input buffer to output buffer at arbitrary nibble offsets
- * @param outbuffer Output buffer
- * @param inbuffer Input buffer
- * @param inoffset_nibbles Offset at which to start reading from inbuffer, in nibbles
- * @param outoffset_nibbles Offset at which to start writing to outbuffer, in nibbles
- * @param length_nibbles Length of data to copy, in nibbles
+ * @brief copy data from input buffer to output buffer at arbitrary nibble offsets
+ * @param outbuffer pointer to output buffer
+ * @param inbuffer pointer to input buffer
+ * @param inoffset_nibbles offset at which to start reading from inbuffer, in nibbles
+ * @param outoffset_nibbles offset at which to start writing to outbuffer, in nibbles
+ * @param length_nibbles length of data to copy, in nibbles
  */
 void memcpy_nibbles(uint8_t *outbuffer, uint8_t *inbuffer, uint8_t inoffset_nibbles, uint8_t outoffset_nibbles, uint8_t length_nibbles) {
 	for (uint8_t i = 0; i < length_nibbles; ++i)
@@ -77,12 +80,12 @@ void memcpy_nibbles(uint8_t *outbuffer, uint8_t *inbuffer, uint8_t inoffset_nibb
 }
 
 /**
- * @brief Convolutional coder, multiplies input binary string U(X) with generator polynomial G(X) to produce output: V(X) = U(X) * G(X) under GF(2)-arithmetic
- * @param inbuffer Input binary string, interpreted as polynomial U(X)
- * @param outbuffer Output binary string, V(X)
- * @param length Length of inbuffer in bits
- * @param offset_bits Number of bits to skip in input, this many bits will just be ignored and not encoded
- * @param polynomial Generator polynomial G(X) with maximum order 7
+ * @brief convolutional coder, multiplies input binary string U(X) with generator polynomial G(X) to produce output: V(X) = U(X) * G(X) under GF(2)-arithmetic
+ * @param inbuffer input binary string, interpreted as polynomial U(X)
+ * @param outbuffer output binary string, V(X)
+ * @param length length of inbuffer in bits
+ * @param offset_bits number of bits to skip in input, this many bits will just be ignored and not encoded
+ * @param polynomial generator polynomial G(X) with maximum order 7
  */
 void convcode(uint8_t *inbuffer, uint8_t *outbuffer, uint8_t length_bits, uint16_t offset_bits, uint8_t polynomial)
 {
@@ -110,11 +113,11 @@ void convcode(uint8_t *inbuffer, uint8_t *outbuffer, uint8_t length_bits, uint16
 }
 
 /**
- * @brief Convolutional "decoder", does not take care of error correction, but simply reverses the convolutional coding applied by ::convcode. Realizes the polynomial division U(X) = V(X) / G(X) under GF(2)-arithmetic
- * @param inbuffer Input binary string, interpreted as polynomial V(X)
- * @param outbuffer Output binary string, U(X)
- * @param length_bits Length of inbuffer in bits
- * @param offset_bits Number of bits to skip in input, this many bits will just be ignored and not decoded
+ * @brief convolutional "decoder", does not take care of error correction, but simply reverses the convolutional coding applied by ::convcode. Realizes the polynomial division U(X) = V(X) / G(X) under GF(2)-arithmetic
+ * @param inbuffer input binary string, interpreted as polynomial V(X)
+ * @param outbuffer output binary string, U(X)
+ * @param length_bits length of inbuffer in bits
+ * @param offset_bits number of bits to skip in input, this many bits will just be ignored and not decoded
  * @param polynomial Generator polynomial G(X) with maximum order 7. Only polynomials with the LSB set (corresponds to "1") are supported.
  */
 void unconvcode(uint8_t *inbuffer, uint8_t *outbuffer, uint8_t length_bits, uint16_t offset_bits, uint8_t polynomial) {
@@ -162,12 +165,12 @@ uint8_t frametype_to_packetlen[] = {
 };
 
 /**
- * @brief Calculate MAC for given frame and given private key
- * @param packetcontent Buffer containing all bytes in uplink packet except for the MAC tag itself (flags, SN, device ID, payload)
- * @param payloadlen Length of payload inside packet in bytes (0 to 12, where 0 is for single-bit messages), length of `packetcontent` is thus 6 + payloadlen
- * @param key Buffer containing the NAK (secret key)
- * @param mac Output, message authentication code (MAC)
- * @return Length of MAC in bytes
+ * @brief calculate MAC for given frame and given private key
+ * @param packetcontent buffer containing all bytes in uplink packet except for the MAC tag itself (flags, SN, device ID, payload)
+ * @param payloadlen length of payload inside packet in bytes (0 to 12, where 0 is for single-bit messages), length of `packetcontent` is thus 6 + payloadlen
+ * @param key buffer containing the NAK (secret key)
+ * @param mac output, message authentication code (MAC)
+ * @return length of MAC in bytes
  */
 uint8_t sfx_uplink_get_mac(uint8_t *packetcontent, uint8_t payloadlen, uint8_t *key, uint8_t *mac) {
 	// Fill two 128bit-AES blocks with data to encrypt, even if maybe just one of them is used
@@ -204,10 +207,11 @@ uint8_t sfx_uplink_get_mac(uint8_t *packetcontent, uint8_t payloadlen, uint8_t *
 }
 
 /**
- * @brief: Generate raw Sigfox uplink frame for the given frame contents
- * @param uplink: The content of the payload to encode
- * @param common: General information about the Sigfox object and its state
- * @param encoded: Output, raw encoded Sigfox uplink frame(s), including preamble
+ * @brief generate raw Sigfox uplink frame for the given frame contents
+ * @param uplink the content of the payload to encode
+ * @param common general information about the Sigfox object and its state
+ * @param encoded output, raw encoded Sigfox uplink frame(s), including preamble
+ * @return ::SFX_ULE_ERR_NONE if decoding was successful, otherwise some error defined in ::sfx_ule_err
  */
 sfx_ule_err sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, sfx_ul_encoded *encoded)
 {
@@ -325,10 +329,10 @@ sfx_ule_err sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, sfx_ul
 }
 
 /**
- * @brief: Retrieve contents of Sigfox uplink from given raw frame
- * @param to_decode: The raw contents of the Sigfox uplink frame to decode, without preamble (any replica)
- * @param uplink_out: Output, decoded plain contents of uplink frame
- * @param common: General information about the Sigfox object and its state. NAK is optional and only required, if MAC tag checking is enabled.
+ * @brief retrieve contents of Sigfox uplink from given raw frame
+ * @param to_decode the raw contents of the Sigfox uplink frame to decode, only first frame is processed (can be initial transmission or any replica frame)
+ * @param uplink_out output, decoded plain contents of uplink frame
+ * @param common general information about the Sigfox object and its state: NAK is an optional input and only required, if MAC tag checking is enabled. Sequence number and and device ID fileds are used as outputs
  * @param check_mac: If true, check MAC tag of uplink frame. In this case, a valid NAK has to be provided.
  * @return ::SFX_ULD_ERR_NONE if decoding was successful, otherwise some error defined in ::sfx_uld_err
  */

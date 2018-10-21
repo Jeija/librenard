@@ -7,6 +7,9 @@
 #include "downlink.h"
 #include "common.h"
 
+/**
+ * @brief content of Sigfox's 13-byte (::SFX_DL_PREAMBLELEN) downlink preamble
+ */
 uint8_t SFX_DL_PREAMBLE[] = {
 	0x2a, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
 	0xaa, 0xaa, 0xaa, 0xaa, 0xb2, 0x27
@@ -17,6 +20,9 @@ uint8_t SFX_DL_PREAMBLE[] = {
  * 
  * https://en.wikipedia.org/wiki/Linear-feedback_shift_register
  * Polynomial: x^9 + x^5 + 1
+ *
+ * For detailed description of scrambling algorithm, see section 3.6 of Bachelor's Thesis
+ * "Reverse Engineering of the Sigfox Radio Protocol and Implementation of an Alternative Sigfox Network Stack"
  */
 void LFSR(uint16_t *state)
 {
@@ -66,6 +72,8 @@ void sfx_downlink_frame_scramble(uint8_t *payloadbuf, sfx_commoninfo common)
 /*
  * MAC calculation
  * AES function input consists of device id, plain message and uplink sequence number
+ * See section 3.3 of Bachelor's Thesis
+ * "Reverse Engineering of the Sigfox Radio Protocol and Implementation of an Alternative Sigfox Network Stack"
  */
 uint16_t sfx_downlink_get_mac(uint8_t *message, sfx_commoninfo common) {
 	uint8_t encrypted_data[16];
@@ -86,11 +94,11 @@ uint16_t sfx_downlink_get_mac(uint8_t *message, sfx_commoninfo common) {
 }
 
 /**
- * @brief Retrieve contents of Sigfox downlink from given raw frame
- * @param to_decode The raw contents of the Sigfox downlink frame to decode, without preamble
- * @param common General information about the Sigfox object and its state. If a wrong NAK is provided, _s_sfx_dl_plain::mac_ok will be false, but decoding will still work.
- * @param decoded Output, contents of Sigfox frame and whether MAC / CRC match
- * @attention This function applies Forward Error Correction (FEC). If FEC has occurred during decoding, _s_sfx_dl_plain::fec_corrected will be set to true in the output
+ * @brief retrieve contents of Sigfox downlink from given raw frame
+ * @param to_decode the raw contents of the Sigfox downlink frame to decode
+ * @param common General information about the Sigfox object and its state. If a wrong NAK is provided, sfx_dl_plain::mac_ok will be false, but decoding will still work.
+ * @param decoded output, contents of Sigfox frame and whether MAC / CRC match
+ * @attention This function applies Forward Error Correction (FEC). If FEC has occurred during decoding, sfx_dl_plain::fec_corrected will be set to true in the output.
  */
 void sfx_downlink_decode(sfx_dl_encoded to_decode, sfx_commoninfo common, sfx_dl_plain *decoded)
 {
@@ -153,10 +161,10 @@ void sfx_downlink_decode(sfx_dl_encoded to_decode, sfx_commoninfo common, sfx_dl
 }
 
 /**
- * @brief Generate raw Sigfox downlink frame from given contents, for given Sigfox object and its state
- * @param to_encode Content of raw Sigfox frame, only _s_sfx_dl_plain::payload has to be set, all other members of ::sfx_dl_plain are ignored.
- * @param common General information about the Sigfox object and its state
- * @param encoded Output, raw Sigfox downlink frame, excluding preamble
+ * @brief generate raw Sigfox downlink frame from given contents, for given Sigfox object and its state
+ * @param to_encode content of raw Sigfox frame, only sfx_dl_plain::payload has to be set, all other members of ::sfx_dl_plain are ignored
+ * @param common general information about the Sigfox object and its state
+ * @param encoded output, raw Sigfox downlink frame, excluding preamble
  */
 void sfx_downlink_encode(sfx_dl_plain to_encode, sfx_commoninfo common, sfx_dl_encoded *encoded)
 {
