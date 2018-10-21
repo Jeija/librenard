@@ -6,25 +6,32 @@
 #ifndef _DOWNLINK_H
 #define _DOWNLINK_H
 
-#define SFX_DL_PAYLOADLEN 15
-#define SFX_DL_MSGLEN 8
-#define SFX_DL_MSGOFFSET 4
-#define SFX_DL_HMACOFFSET 12
-#define SFX_DL_HMACLEN 2
+/*
+ * Lengths in bytes
+ * Frame field length definitions, see section 3.2 of Bachelor's Thesis
+ * "Reverse Engineering of the Sigfox Radio Protocol and Implementation of an Alternative Sigfox Network Stack"
+ */
+#define SFX_DL_FRAMELEN 15
+
+#define SFX_DL_PAYLOADOFFSET 4
+#define SFX_DL_MACOFFSET 12
 #define SFX_DL_CRCOFFSET 14
+
+#define SFX_DL_PAYLOADLEN 8
+#define SFX_DL_MACLEN 2
 #define SFX_DL_CRCLEN 1
 
 #define SFX_DL_PREAMBLELEN 13
 extern uint8_t SFX_DL_PREAMBLE[];
 
 typedef struct _s_sfx_dl_encoded {
-	uint8_t payload[SFX_DL_PAYLOADLEN];
+	uint8_t frame[SFX_DL_FRAMELEN];
 } sfx_dl_encoded;
 
 typedef struct _s_sfx_dl_plain {
-	uint8_t msg[SFX_DL_MSGLEN];
+	uint8_t payload[SFX_DL_PAYLOADLEN];
 	bool crc_ok;
-	bool hmac_ok;
+	bool mac_ok;
 	bool fec_corrected;
 } sfx_dl_plain;
 

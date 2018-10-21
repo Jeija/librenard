@@ -1,7 +1,7 @@
 #include <string.h>
 #include <stdio.h>
 
-#include "sigfox_hmac.h"
+#include "sigfox_mac.h"
 #include "sigfox_crc.h"
 #include "bch_15_11.h"
 #include "downlink.h"
@@ -33,7 +33,7 @@ uint32_t extractLowerBits(uint32_t value, uint8_t bitcount)
 	return ((1 << bitcount) - 1) & value;
 }
 
-void sfx_downlink_payload_scramble(uint8_t *payloadbuf, sfx_commoninfo common)
+void sfx_downlink_frame_scramble(uint8_t *payloadbuf, sfx_commoninfo common)
 {
 	/*
 	 * Initialize LFSR with seed value derived from device ID and uplink SN (for descrambling)
@@ -64,10 +64,10 @@ void sfx_downlink_payload_scramble(uint8_t *payloadbuf, sfx_commoninfo common)
 }
 
 /*
- * HMAC calculation
+ * MAC calculation
  * AES function input consists of device id, plain message and uplink sequence number
  */
-uint16_t sfx_downlink_get_hmac(uint8_t *message, sfx_commoninfo common) {
+uint16_t sfx_downlink_get_mac(uint8_t *message, sfx_commoninfo common) {
 	uint8_t encrypted_data[16];
 	uint8_t data_to_encrypt[16];
 	data_to_encrypt[0] = (common.devid & 0x000000ff) >> 0;
@@ -76,7 +76,7 @@ uint16_t sfx_downlink_get_hmac(uint8_t *message, sfx_commoninfo common) {
 	data_to_encrypt[3] = (common.devid & 0xff000000) >> 24;
 	data_to_encrypt[4] = (common.seqnum & 0x00ff) >> 0;
 	data_to_encrypt[5] = (common.seqnum & 0xff00) >> 8;
-	memcpy(&data_to_encrypt[6], message, SFX_DL_MSGLEN);
+	memcpy(&data_to_encrypt[6], message, SFX_DL_PAYLOADLEN);
 	data_to_encrypt[14] = (common.devid & 0x000000ff) >> 0;
 	data_to_encrypt[15] = (common.devid & 0x0000ff00) >> 8;
 
@@ -88,25 +88,25 @@ uint16_t sfx_downlink_get_hmac(uint8_t *message, sfx_commoninfo common) {
 /**
  * @brief Retrieve contents of Sigfox downlink from given raw frame
  * @param to_decode The raw contents of the Sigfox downlink frame to decode, without preamble
- * @param common General information about the Sigfox object and its state. If a wrong NAK is provided, _s_sfx_dl_plain::hmac_ok will be false, but decoding will still work.
+ * @param common General information about the Sigfox object and its state. If a wrong NAK is provided, _s_sfx_dl_plain::mac_ok will be false, but decoding will still work.
  * @param decoded Output, contents of Sigfox frame and whether MAC / CRC match
  * @attention This function applies Forward Error Correction (FEC). If FEC has occurred during decoding, _s_sfx_dl_plain::fec_corrected will be set to true in the output
  */
 void sfx_downlink_decode(sfx_dl_encoded to_decode, sfx_commoninfo common, sfx_dl_plain *decoded)
 {
 	decoded->crc_ok = false;
-	decoded->hmac_ok = false;
+	decoded->mac_ok = false;
 
 	/*
-	 * Descramble payload (scrambler / descrambler are identical)
+	 * Descramble frame (scrambler / descrambler are identical)
 	 */
-	uint8_t payload[SFX_DL_PAYLOADLEN];
-	memcpy(payload, to_decode.payload, sizeof(payload));
-	sfx_downlink_payload_scramble(payload, common);
+	uint8_t frame[SFX_DL_FRAMELEN];
+	memcpy(frame, to_decode.frame, sizeof(frame));
+	sfx_downlink_frame_scramble(frame, common);
 
 	/*
 	 * FEC and "deinterleaving"
-	 * The downlink uses a BCH(15,11,1)-code where the n-th bit of every payload byte is part of
+	 * The downlink uses a BCH(15,11,1)-code where the n-th bit of every frame byte is part of
 	 * the code word (some sort of interleaving). The code is systematic in the way that bytes
 	 * 0-3 contain just redundancy information and bytes 4-14 contain the actual message (and thus
 	 * bits 0-3 are for reduandancy while bits 4-14 contain data).
@@ -116,68 +116,68 @@ void sfx_downlink_decode(sfx_dl_encoded to_decode, sfx_commoninfo common, sfx_dl
 	for (uint8_t bitoffset = 0; bitoffset < 8; ++bitoffset) {
 		uint16_t code = 0x0000;
 
-		// "deinterleave": combine bits from payload bytes to single codeword
+		// "deinterleave": combine bits from frame bytes to single codeword
 		for (uint8_t byte = 0; byte < 15; ++byte)
-			code |= ((payload[byte] & (1 << (7 - bitoffset))) ? 1 : 0) << (14 - byte);
+			code |= ((frame[byte] & (1 << (7 - bitoffset))) ? 1 : 0) << (14 - byte);
 
 		bool changed = false;
 		code = bch_15_11_correct(code, &changed);
 		if (changed)
 			decoded->fec_corrected = true;
 
-		// "interleave": write back bits to payload bytes
+		// "interleave": write back bits to frame bytes
 		for (uint8_t byte = 0; byte < 15; ++byte) {
 			if (code & (1 << (14 - byte)))
-				payload[byte] |= 1 << (7 - bitoffset);
+				frame[byte] |= 1 << (7 - bitoffset);
 			else
-				payload[byte] &= ~(1 << (7 - bitoffset));
+				frame[byte] &= ~(1 << (7 - bitoffset));
 		}
 	}
 
 	/*
-	 * Extract message
+	 * Extract payload from frame
 	 */
-	memcpy(decoded->msg, &payload[SFX_DL_MSGOFFSET], SFX_DL_MSGLEN);
+	memcpy(decoded->payload, &frame[SFX_DL_PAYLOADOFFSET], SFX_DL_PAYLOADLEN);
 
 	/*
-	 * Check message CRC
+	 * Check CRC
 	 */
-	uint8_t crc8 = SIGFOX_CRC_crc8(&payload[SFX_DL_MSGOFFSET], SFX_DL_MSGLEN + SFX_DL_HMACLEN);
-	decoded->crc_ok = (crc8 == payload[SFX_DL_CRCOFFSET]);
+	uint8_t crc8 = SIGFOX_CRC_crc8(&frame[SFX_DL_PAYLOADOFFSET], SFX_DL_PAYLOADLEN + SFX_DL_MACLEN);
+	decoded->crc_ok = (crc8 == frame[SFX_DL_CRCOFFSET]);
 
 	/*
-	 * Check message HMAC
+	 * Check MAC
 	 */
-	uint16_t hmac = sfx_downlink_get_hmac(decoded->msg, common);
-	decoded->hmac_ok = ((hmac & 0xff00) >> 8 == payload[SFX_DL_HMACOFFSET] && (hmac & 0xff) == payload[SFX_DL_HMACOFFSET + 1]);
+	uint16_t mac = sfx_downlink_get_mac(decoded->payload, common);
+	decoded->mac_ok = ((mac & 0xff00) >> 8 == frame[SFX_DL_MACOFFSET] && (mac & 0xff) == frame[SFX_DL_MACOFFSET + 1]);
 }
 
 /**
  * @brief Generate raw Sigfox downlink frame from given contents, for given Sigfox object and its state
- * @param to_encode Content of raw Sigfox frame, only _s_sfx_dl_plain::msg has to be set, all other members of ::sfx_dl_plain are ignored.
+ * @param to_encode Content of raw Sigfox frame, only _s_sfx_dl_plain::payload has to be set, all other members of ::sfx_dl_plain are ignored.
  * @param common General information about the Sigfox object and its state
  * @param encoded Output, raw Sigfox downlink frame, excluding preamble
  */
 void sfx_downlink_encode(sfx_dl_plain to_encode, sfx_commoninfo common, sfx_dl_encoded *encoded)
 {
 	/*
-	 * Calculate message MAC
+	 * Calculate MAC
 	 */
-	uint16_t hmac = sfx_downlink_get_hmac(to_encode.msg, common);
-	encoded->payload[SFX_DL_HMACOFFSET] = (hmac & 0xff00) >> 8;
-	encoded->payload[SFX_DL_HMACOFFSET + 1] = hmac & 0xff;
+	uint16_t mac = sfx_downlink_get_mac(to_encode.payload, common);
+	encoded->frame[SFX_DL_MACOFFSET] = (mac & 0xff00) >> 8;
+	encoded->frame[SFX_DL_MACOFFSET + 1] = mac & 0xff;
 
 	/*
-	 * Copy raw (no FEC, unscrambled) message to frame payload for CRC calculation
+	 * Copy raw (no FEC, unscrambled) payload to frame for CRC calculation
 	 */
-	memcpy(&encoded->payload[SFX_DL_MSGOFFSET], to_encode.msg, SFX_DL_MSGLEN);
+	memcpy(&encoded->frame[SFX_DL_PAYLOADOFFSET], to_encode.payload, SFX_DL_PAYLOADLEN);
 
 	/*
-	 * Calculate message CRC
-	 * CRC is calculated for buffer comprised of message and HMAC
+	 * Calculate CRC
+	 * CRC is calculated for buffer comprised of payload and MAC
 	 */
-	uint8_t crc8 = SIGFOX_CRC_crc8(&encoded->payload[SFX_DL_MSGOFFSET], SFX_DL_MSGLEN + SFX_DL_HMACLEN);
-	encoded->payload[SFX_DL_CRCOFFSET] = crc8;
+	uint8_t crc8 = SIGFOX_CRC_crc8(&encoded->frame[SFX_DL_PAYLOADOFFSET], SFX_DL_PAYLOADLEN + SFX_DL_MACLEN);
+	encoded->frame[SFX_DL_CRCOFFSET] = crc8;
 
 	/*
 	 * Add redundancy for FEC (and "interleaving")
@@ -185,24 +185,24 @@ void sfx_downlink_encode(sfx_dl_plain to_encode, sfx_commoninfo common, sfx_dl_e
 	for (uint8_t bitoffset = 0; bitoffset < 8; ++bitoffset) {
 		uint16_t code = 0x0000;
 
-		// "deinterleave": combine bits from message bytes to single 11-bit message value
+		// "deinterleave": combine bits from payload bytes to single 11-bit payload value
 		for (uint8_t byte = 0; byte < 11; ++byte)
-			if (encoded->payload[SFX_DL_MSGOFFSET + byte] & (1 << (7 - bitoffset)))
+			if (encoded->frame[SFX_DL_PAYLOADOFFSET + byte] & (1 << (7 - bitoffset)))
 				code |= 1 << (10 - byte);
 
 		code = bch_15_11_extend(code);
 
-		// "interleave": write back bits to payload bytes
+		// "interleave": write back bits to frame bytes
 		for (uint8_t byte = 0; byte < 15; ++byte) {
 			if (code & (1 << (14 - byte)))
-				encoded->payload[byte] |= 1 << (7 - bitoffset);
+				encoded->frame[byte] |= 1 << (7 - bitoffset);
 			else
-				encoded->payload[byte] &= ~(1 << (7 - bitoffset));
+				encoded->frame[byte] &= ~(1 << (7 - bitoffset));
 		}
 	}
 
 	/*
-	 * Scramble payload (scrambler / descrambler are identical)
+	 * Scramble frame (scrambler / descrambler are identical)
 	 */
-	sfx_downlink_payload_scramble(encoded->payload, common);
+	sfx_downlink_frame_scramble(encoded->frame, common);
 }
