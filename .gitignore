@@ -15,3 +15,4 @@ doc/*
 !doc/_static
 doc/_static/*
 !doc/_static/*.svg
+!logo.svg
