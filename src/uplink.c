@@ -409,7 +409,7 @@ sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out
 
 	// Read and interpret flags
 	uint8_t flags = getvalue_nibbles(frame_plain, 3, 1);
-	uint8_t maclen = SFX_UL_MIN_MACLEN + uplink_out->singlebit ? 0 : flags >> 2;
+	uint8_t maclen = SFX_UL_MIN_MACLEN + (uplink_out->singlebit ? 0 : flags >> 2);
 	uplink_out->request_downlink = flags & 0b0010 ? true : false;
 	uplink_out->payloadlen = packetlen_bytes - (SFX_UL_FLAGLEN_NIBBLES + SFX_UL_SNLEN_NIBBLES + SFX_UL_DEVIDLEN_NIBBLES + SFX_UL_CRCLEN_NIBBLES) / 2 - maclen;
 
