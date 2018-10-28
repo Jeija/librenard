@@ -1,6 +1,14 @@
 Uplink Encoding / Decoding
 ==========================
 
+Include
+-------
+Include the uplink header for uplink functionality:
+
+.. code-block:: c
+
+	#include <uplink.h>
+
 Functions
 ---------
 .. doxygenfunction:: sfx_uplink_encode

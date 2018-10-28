@@ -1,6 +1,14 @@
 Downlink Encoding / Decoding
 ============================
 
+Include
+-------
+Include the downlink header for downlink functionality:
+
+.. code-block:: c
+
+	#include <downlink.h>
+
 Functions
 ---------
 .. doxygenfunction:: sfx_downlink_encode
