@@ -16,3 +16,6 @@ doc/*
 doc/_static/*
 !doc/_static/*.svg
 !logo.svg
+!.circleci
+.circleci/*
+!.circleci/config.yml

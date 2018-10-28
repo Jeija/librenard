@@ -1,0 +1,13 @@
+version: 2
+jobs:
+    build:
+        docker:
+            - image: debian:stretch
+        steps:
+            - checkout
+            - run:
+                name: Installdeps
+                command: apt update && apt install -y build-essential
+            - run:
+                name: Compile
+                command: make
