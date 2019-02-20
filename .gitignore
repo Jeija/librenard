@@ -13,6 +13,7 @@ doc/*
 !doc/*.rst
 !doc/Makefile
 !doc/_static
+!doc/requirements.txt
 doc/_static/*
 !doc/_static/*.svg
 !logo.svg
