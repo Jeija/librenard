@@ -2,8 +2,9 @@ TARGET := librenard.a
 SRCDIR := src/
 OBJDIR := obj/
 
-CFLAGS := -Wall
-LIBS :=
+CFLAGS := -Wall -std=c99 -Og
+
+ARCHFLAGS :=
 
 SRCS := $(wildcard  $(SRCDIR)*.c)
 OBJS := $(addprefix $(OBJDIR),$(notdir $(SRCS:.c=.o)))
@@ -17,7 +18,8 @@ $(OBJDIR):
 	mkdir -p $(OBJDIR)
 
 $(OBJDIR)%.o: $(SRCDIR)%.c $(OBJDIR)
-	$(CC) -c $(LIBS) $(CFLAGS) $< -o $@
+	$(CC) -c $(ARCHFLAGS) $(CFLAGS) $< -o $@
+
 
 clean:
 	$(RM) -r $(TARGET)

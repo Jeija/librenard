@@ -1,5 +1,4 @@
 #include <string.h>
-#include <stdio.h>
 
 #include "sigfox_mac.h"
 #include "sigfox_crc.h"
