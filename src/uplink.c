@@ -381,7 +381,7 @@ sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out
 	 * so that we don't have to depend on stdlib.h for malloc. Allocates one more nibble than
 	 * required because frames have an odd-nibble length, but we can only allocate bytes.
 	 */
-	uint8_t frame_plain[SFX_UL_MAX_FRAMELEN - SFX_UL_PREAMBLELEN_NIBBLES / 2];
+	uint8_t frame_plain[SFX_UL_MAX_FRAMELEN];
 	uint8_t ceil_framelen_bytes = (to_decode.framelen_nibbles + 1) / 2;
 	if (best_replica == 0)
 		memcpy(frame_plain, frame, ceil_framelen_bytes);
