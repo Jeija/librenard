@@ -70,20 +70,23 @@ typedef struct _s_sfx_ul_encoded {
  * @brief set of errors that can occur during uplink frame encoding, returned by ::sfx_uplink_encode
  */
 typedef enum _s_sfx_ule_err {
+	/// no error occured, success
+	SFX_ULE_ERR_NONE = 0,
+
 	/// length of payload is too high, does not fit in Sigfox uplink frame
 	SFX_ULE_ERR_PAYLOAD_TOO_LONG,
 
 	/// single-bit uplink was transmitted, but payload length was not defined to be 0
-	SFX_ULE_SINGLEBIT_MISMATCH,
-
-	/// no error occured, success
-	SFX_ULE_ERR_NONE
+	SFX_ULE_SINGLEBIT_MISMATCH
 } sfx_ule_err;
 
 /**
  * @brief set of errors that can occur during uplink frame decoding, returned by ::sfx_uplink_decode
  */
 typedef enum _s_sfx_uld_err {
+	/// no error occured, success
+	SFX_ULD_ERR_NONE = 0,
+
 	/// number of nibbles in message frame is even; only odd lengths can naturally occur
 	SFX_ULD_ERR_FRAMELEN_EVEN,
 
@@ -95,9 +98,6 @@ typedef enum _s_sfx_uld_err {
 
 	/// frame's MAC doesn't match MAC computed from frame contents (and private key); can only occur if `check_mac` parameter to ::sfx_uplink_decode is set
 	SFX_ULD_ERR_MAC_INVALID,
-
-	/// no error occured, success
-	SFX_ULD_ERR_NONE
 } sfx_uld_err;
 
 sfx_ule_err sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, sfx_ul_encoded *encoded);
