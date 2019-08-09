@@ -8,19 +8,21 @@ ARCHFLAGS :=
 
 SRCS := $(wildcard  $(SRCDIR)*.c)
 OBJS := $(addprefix $(OBJDIR),$(notdir $(SRCS:.c=.o)))
+DEPS := $(addprefix $(OBJDIR),$(notdir $(SRCS:.c=.d)))
 
-all: $(TARGET)
+all: $(OBJDIR) $(TARGET)
 
 $(TARGET): $(OBJS)
-	$(AR) cr $(TARGET) $(OBJS)
+	$(AR) cr $@ $^
 
 $(OBJDIR):
 	mkdir -p $(OBJDIR)
 
-$(OBJDIR)%.o: $(SRCDIR)%.c $(OBJDIR)
-	$(CC) -c $(ARCHFLAGS) $(CFLAGS) $< -o $@
-
+$(OBJDIR)%.o: $(SRCDIR)%.c
+	$(CC) -c $(ARCHFLAGS) $(CFLAGS) -MMD -MP $< -o $@
 
 clean:
 	$(RM) -r $(TARGET)
 	$(RM) -r $(OBJDIR)
+
+-include $(DEPS)

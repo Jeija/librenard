@@ -194,7 +194,7 @@ uint8_t sfx_uplink_get_mac(uint8_t *packetcontent, uint8_t payloadlen, uint8_t *
 	uint8_t encrypted_data[32];
 	aes_128_cbc_encrypt(encrypted_data, data_to_encrypt, blocknum * 16, key);
 
-	// The length of the MAC included in the frame depends on the length of the 
+	// The length of the MAC included in the frame depends on the length of the
 	// message. It is at least 2 bytes, but if the message has to be padded, the
 	// first bytes of the MAC are used as padding.
 	// Special case: Single-byte messages have a special frame type, don't have
