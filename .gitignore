@@ -6,6 +6,7 @@ src/*
 !src/*.c
 !src/*.h
 !Makefile
+!.readthedocs.yml
 !doc
 doc/*
 !doc/Doxyfile
