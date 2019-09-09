@@ -7,9 +7,9 @@
     <a href="https://circleci.com/gh/Jeija/librenard"><img src="https://circleci.com/gh/Jeija/librenard.svg?style=shield&circle-token=812dca1abdf804f91805e8932f8eb0519aefd99e" alt="CircleCI"></a>
 </p>
 
-`librenard` is a portable library written in the C programming language that implements [Sigfox](https://www.sigfox.com/) uplink and downlink frame encoding and decoding. It aims to be an open source replacement for [Sigfox's proprietary device library](https://build.sigfox.com/sigfox-library-for-devices). It can be used together with the CLI frontend [`renard`](https://github.com/Jeija/renard) and the SDR physical layer [`renard-phy`](https://github.com/Jeija/renard-phy) or be embedded in custom applications.
+`librenard` is a portable library written in the C programming language that implements [Sigfox](https://www.sigfox.com/) uplink and downlink frame encoding and decoding. It aims to be an open source replacement for [Sigfox's proprietary device library](https://build.sigfox.com/sigfox-library-for-devices). It can be used in conjuction with the CLI frontend [`renard`](https://github.com/Jeija/renard) and the SDR physical layer [`renard-phy`](https://github.com/Jeija/renard-phy) or be embedded in your custom IoT application on any microcontroller platform. For instance, [`renard-phy-s2lp`](https://github.com/Jeija/renard-phy-s2lp) can be used to build a completely open-source Sigfox device based on `librenard` and STMicroelectronics' S2-LP ultra-low power transceiver chip.
 
-It has been tested on Linux, macOS and Android (x86 and ARM), but should also be portable to other operating systems and various microcontroller platforms.
+It has been tested on many platforms including Linux, macOS, Android (x86 and ARM), STM32L0 and ESP32 and should also be portable to other operating systems and various microcontroller platforms.
 
 ## Installation and Compilation
 * Clone this repository:
