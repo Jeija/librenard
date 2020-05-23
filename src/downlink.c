@@ -87,7 +87,7 @@ uint16_t sfx_downlink_get_mac(uint8_t *message, sfx_commoninfo common) {
 	data_to_encrypt[14] = (common.devid & 0x000000ff) >> 0;
 	data_to_encrypt[15] = (common.devid & 0x0000ff00) >> 8;
 
-	aes_128_cbc_encrypt(encrypted_data, data_to_encrypt, 16, common.key);
+	renard_aes_128_cbc_encrypt(encrypted_data, data_to_encrypt, 16, common.key);
 
 	return (encrypted_data[0] << 8) | encrypted_data[1];
 }

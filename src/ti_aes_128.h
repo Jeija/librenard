@@ -39,6 +39,6 @@
 #ifndef TI_OPT_AES_H_
 #define TI_OPT_AES_H_
 
-void aes_enc_dec(unsigned char *state, const unsigned char *Localkey, unsigned char dir);
+void renard_aes_enc_dec(unsigned char *state, const unsigned char *Localkey, unsigned char dir);
 
 #endif /* TI_OPT_AES_H_ */

@@ -85,7 +85,7 @@ const unsigned char Rcon[10] = {
 
 
 // multiply by 2 in the galois field
-unsigned char galois_mul2(unsigned char value)
+unsigned char renard_galois_mul2(unsigned char value)
 {
   signed char temp;
   // cast to signed value
@@ -104,7 +104,7 @@ unsigned char galois_mul2(unsigned char value)
 // but much smaller than the 2 functions separated
 // This function only implements AES-128 encryption and decryption (AES-192 and 
 // AES-256 are not supported by this code) 
-void aes_enc_dec(unsigned char *state, const unsigned char *Localkey, unsigned char dir)
+void renard_aes_enc_dec(unsigned char *state, const unsigned char *Localkey, unsigned char dir)
 {
   unsigned char buf1, buf2, buf3, buf4, round, i;
   unsigned char key[16];
@@ -178,17 +178,17 @@ void aes_enc_dec(unsigned char *state, const unsigned char *Localkey, unsigned c
         buf4 = (i << 2);
         if (dir){
           // precompute for decryption
-          buf1 = galois_mul2(galois_mul2(state[buf4]^state[buf4+2]));
-          buf2 = galois_mul2(galois_mul2(state[buf4+1]^state[buf4+3]));
+          buf1 = renard_galois_mul2(renard_galois_mul2(state[buf4]^state[buf4+2]));
+          buf2 = renard_galois_mul2(renard_galois_mul2(state[buf4+1]^state[buf4+3]));
           state[buf4] ^= buf1; state[buf4+1] ^= buf2; state[buf4+2] ^= buf1; state[buf4+3] ^= buf2; 
         }
         // in all cases
         buf1 = state[buf4] ^ state[buf4+1] ^ state[buf4+2] ^ state[buf4+3];
         buf2 = state[buf4];
-        buf3 = state[buf4]^state[buf4+1]; buf3=galois_mul2(buf3); state[buf4] = state[buf4] ^ buf3 ^ buf1;
-        buf3 = state[buf4+1]^state[buf4+2]; buf3=galois_mul2(buf3); state[buf4+1] = state[buf4+1] ^ buf3 ^ buf1;
-        buf3 = state[buf4+2]^state[buf4+3]; buf3=galois_mul2(buf3); state[buf4+2] = state[buf4+2] ^ buf3 ^ buf1;
-        buf3 = state[buf4+3]^buf2;     buf3=galois_mul2(buf3); state[buf4+3] = state[buf4+3] ^ buf3 ^ buf1;
+        buf3 = state[buf4]^state[buf4+1]; buf3=renard_galois_mul2(buf3); state[buf4] = state[buf4] ^ buf3 ^ buf1;
+        buf3 = state[buf4+1]^state[buf4+2]; buf3=renard_galois_mul2(buf3); state[buf4+1] = state[buf4+1] ^ buf3 ^ buf1;
+        buf3 = state[buf4+2]^state[buf4+3]; buf3=renard_galois_mul2(buf3); state[buf4+2] = state[buf4+2] ^ buf3 ^ buf1;
+        buf3 = state[buf4+3]^buf2;     buf3=renard_galois_mul2(buf3); state[buf4+3] = state[buf4+3] ^ buf3 ^ buf1;
       }
     }
     

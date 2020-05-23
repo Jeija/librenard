@@ -192,7 +192,7 @@ uint8_t sfx_uplink_get_mac(uint8_t *packetcontent, uint8_t payloadlen, uint8_t *
 	// Encrypt authenticity-checked data with 'private' AES key,
 	// beginning of encrypted_data is mac
 	uint8_t encrypted_data[32];
-	aes_128_cbc_encrypt(encrypted_data, data_to_encrypt, blocknum * 16, key);
+	renard_aes_128_cbc_encrypt(encrypted_data, data_to_encrypt, blocknum * 16, key);
 
 	// The length of the MAC included in the frame depends on the length of the
 	// message. It is at least 2 bytes, but if the message has to be padded, the
