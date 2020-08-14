@@ -49,3 +49,12 @@ cd librenard/doc
 make html
 ```
 * Open `doc/_build/html/index.html` in a web browser
+
+## TODOs
+* Implement empty Uplink frames (currently only supports 1-bit uplinks at minimum)
+* Implement [encrypted mode](https://www.disk91.com/2018/technology/sigfox/stop-telling-me-sigfox-is-clear-payload-for-real-youre-just-lazy/)
+* Implement support for OOB frames
+* Implement support for multiple RC Zones (...or only do that on PHY layer?)
+* Add Monarch support?
+* Implement support for repeater-like applications (evalute and expose repeater flag)
+* Once the satellite is up and running, implement Admiral LEO
