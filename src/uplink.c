@@ -78,6 +78,28 @@ void memcpy_nibbles(uint8_t *outbuffer, uint8_t *inbuffer, uint8_t inoffset_nibb
 		setnibble(outbuffer, outoffset_nibbles + i, getnibble(inbuffer, inoffset_nibbles + i));
 }
 
+#ifdef __ICCARM__
+
+/**
+ * @brief count number of set bits in an 32-bit value, if __builtin_popcount is not available
+ * @param in 8-bit value to count bits in
+ * @return number of set bits
+ */
+uint8_t __builtin_popcount(uint32_t in)
+{
+	uint8_t count = 0;
+	for (uint32_t i = 0; i < 31; ++i) {
+		if (in & 1)
+			count++;
+		in >>= 1;
+	}
+
+	return count;
+}
+
+#endif
+
+
 /**
  * @brief convolutional coder, multiplies input binary string U(X) with generator polynomial G(X) to produce output: V(X) = U(X) * G(X) under GF(2)-arithmetic
  * @param inbuffer input binary string, interpreted as polynomial U(X)
@@ -105,6 +127,7 @@ void convcode(uint8_t *inbuffer, uint8_t *outbuffer, uint8_t length_bits, uint16
 			// Determine the output value of the filter with given polynomial for current bit
 			// __builtin_popcount returns the hamming weight of its argument
 			uint8_t convoluted = shiftregister & polynomial;
+
 			bool out = __builtin_popcount(convoluted) % 2 == 1;
 			outbuffer[i] = (outbuffer[i] & ~(1 << bit)) | ((out ? 1 : 0) << bit);
 		}
@@ -257,7 +280,7 @@ sfx_ule_err sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, sfx_ul
 	uint8_t maclen;
 	if (uplink.singlebit) {
 		maclen = SFX_UL_MIN_MACLEN;
-		flags |= 0b1000 | ((uplink.payload[0] == 0) ? 0b0000 : 0b0100);
+		flags |= 0x8 | ((uplink.payload[0] == 0) ? 0x0 : 0x4);
 	} else if (uplink.payloadlen == 1) {
 		maclen = SFX_UL_MIN_MACLEN;
 	} else {
@@ -267,7 +290,7 @@ sfx_ule_err sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, sfx_ul
 
 	// Set downlink bit in flags if requested
 	if (uplink.request_downlink)
-		flags |= 0b0010;
+		flags |= 0x2;
 
 	setnibble(packet, 0, flags);
 
@@ -409,14 +432,14 @@ sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out
 	// Read and interpret flags
 	uint8_t flags = getvalue_nibbles(frame_plain, 3, 1);
 	uint8_t maclen = SFX_UL_MIN_MACLEN + (uplink_out->singlebit ? 0 : flags >> 2);
-	uplink_out->request_downlink = flags & 0b0010 ? true : false;
+	uplink_out->request_downlink = flags & 0x2 ? true : false;
 	uplink_out->payloadlen = packetlen_bytes - (SFX_UL_FLAGLEN_NIBBLES + SFX_UL_SNLEN_NIBBLES + SFX_UL_DEVIDLEN_NIBBLES) / 2 - maclen;
 
 	// Copy frame's payload to uplink_out (decoded properties)
 	if (!uplink_out->singlebit)
 		memcpy_nibbles(uplink_out->payload, frame_plain, PAYLOAD_OFFSET_NIBBLES, 0, uplink_out->payloadlen * 2);
 	else
-		uplink_out->payload[0] = flags & 0b0100 ? 0x01 : 0x00;
+		uplink_out->payload[0] = flags & 0x4 ? 0x01 : 0x00;
 
 	/*
 	 * Check CRC
