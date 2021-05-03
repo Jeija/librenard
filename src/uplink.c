@@ -337,7 +337,7 @@ sfx_ule_err sfx_uplink_encode(sfx_ul_plain uplink, sfx_commoninfo common, sfx_ul
 	/*
 	 * Add CRC to frame, takes care of bitwise inversion of CRC value
 	 */
-	uint16_t crc16 = ~SIGFOX_CRC_crc16(packet, packetlen);
+	uint16_t crc16 = ~renard_crc16(packet, packetlen);
 	setvalue_nibbles(encoded->frame[0], SFX_UL_FTYPELEN_NIBBLES + packetlen * 2, 4, crc16);
 	encoded->framelen_nibbles = SFX_UL_FTYPELEN_NIBBLES + packetlen * 2 + SFX_UL_CRCLEN_NIBBLES;
 
@@ -450,7 +450,7 @@ sfx_uld_err sfx_uplink_decode(sfx_ul_encoded to_decode, sfx_ul_plain *uplink_out
 
 	memcpy_nibbles(packet, frame_plain, FLAGS_OFFSET_NIBBLES, 0, packetlen_bytes * 2);
 
-	uint16_t crc16 = ~SIGFOX_CRC_crc16(packet, packetlen_bytes);
+	uint16_t crc16 = ~renard_crc16(packet, packetlen_bytes);
 	uint16_t crc16_frame = getvalue_nibbles(frame_plain, crc16_offset_nibbles, SFX_UL_CRCLEN_NIBBLES);
 
 	if (crc16 != crc16_frame)

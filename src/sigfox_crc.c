@@ -4,7 +4,7 @@
 
 #define CRC16_POLYNOMIAL 0x1021
 
-uint16_t SIGFOX_CRC_crc16(uint8_t const data[], uint8_t length)
+uint16_t renard_crc16(uint8_t const data[], uint8_t length)
 {
 	if (length == 0)
 		return 0;
@@ -29,7 +29,7 @@ uint16_t SIGFOX_CRC_crc16(uint8_t const data[], uint8_t length)
 
 #define CRC8_POLYNOMIAL 0x2f
 
-uint8_t SIGFOX_CRC_crc8(uint8_t const data[], uint8_t length)
+uint8_t renard_crc8(uint8_t const data[], uint8_t length)
 {
 	if (length == 0)
 		return 0;

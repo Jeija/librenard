@@ -149,7 +149,7 @@ void sfx_downlink_decode(sfx_dl_encoded to_decode, sfx_commoninfo common, sfx_dl
 	/*
 	 * Check CRC
 	 */
-	uint8_t crc8 = SIGFOX_CRC_crc8(&frame[SFX_DL_PAYLOADOFFSET], SFX_DL_PAYLOADLEN + SFX_DL_MACLEN);
+	uint8_t crc8 = renard_crc8(&frame[SFX_DL_PAYLOADOFFSET], SFX_DL_PAYLOADLEN + SFX_DL_MACLEN);
 	decoded->crc_ok = (crc8 == frame[SFX_DL_CRCOFFSET]);
 
 	/*
@@ -183,7 +183,7 @@ void sfx_downlink_encode(sfx_dl_plain to_encode, sfx_commoninfo common, sfx_dl_e
 	 * Calculate CRC
 	 * CRC is calculated for buffer comprised of payload and MAC
 	 */
-	uint8_t crc8 = SIGFOX_CRC_crc8(&encoded->frame[SFX_DL_PAYLOADOFFSET], SFX_DL_PAYLOADLEN + SFX_DL_MACLEN);
+	uint8_t crc8 = renard_crc8(&encoded->frame[SFX_DL_PAYLOADOFFSET], SFX_DL_PAYLOADLEN + SFX_DL_MACLEN);
 	encoded->frame[SFX_DL_CRCOFFSET] = crc8;
 
 	/*
